@@ -1,0 +1,49 @@
+{
+  "name": "eko-print-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Eko Print Studio — plataforma profissional Web-to-Print para criação, personalização e preparação de artes para produção gráfica.",
+  "type": "module",
+  "keywords": [
+    "eko-print-studio",
+    "web-to-print",
+    "print",
+    "template",
+    "editor",
+    "react",
+    "typescript"
+  ],
+  "author": "alexsulino",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexsulino/eko-print-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alexsulino/eko-print-studio/issues"
+  },
+  "homepage": "https://github.com/alexsulino/eko-print-studio#readme",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "konva": "^9.3.20",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-konva": "^19.0.6",
+    "zustand": "^5.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.3"
+  }
+}
