@@ -5,12 +5,21 @@ import type Konva from 'konva'
 interface TextNodeProps {
   element: TextElement
   draggable: boolean
-  onSelect: (id: string) => void
+  selected?: boolean
+  onSelect: (id: string, evt: { evt: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean } }) => void
+  onDragMove?: (id: string, x: number, y: number) => { x: number; y: number }
   onDragEnd: (id: string, x: number, y: number) => void
   onNodeRef?: (id: string, node: Konva.Node | null) => void
 }
 
-export function TextNode({ element, draggable, onSelect, onDragEnd, onNodeRef }: TextNodeProps) {
+export function TextNode({
+  element,
+  draggable,
+  onSelect,
+  onDragMove,
+  onDragEnd,
+  onNodeRef,
+}: TextNodeProps) {
   const { transform, properties } = element
 
   return (
@@ -35,8 +44,19 @@ export function TextNode({ element, draggable, onSelect, onDragEnd, onNodeRef }:
       letterSpacing={properties.letterSpacing}
       draggable={draggable}
       visible={element.visible}
-      onClick={() => onSelect(element.id)}
-      onTap={() => onSelect(element.id)}
+      onClick={(e) => {
+        e.cancelBubble = true
+        onSelect(element.id, e)
+      }}
+      onTap={(e) => {
+        e.cancelBubble = true
+        onSelect(element.id, e)
+      }}
+      onDragMove={(e) => {
+        if (!onDragMove) return
+        const snapped = onDragMove(element.id, e.target.x(), e.target.y())
+        e.target.position(snapped)
+      }}
       onDragEnd={(e) => onDragEnd(element.id, e.target.x(), e.target.y())}
       ref={(node) => onNodeRef?.(element.id, node)}
     />

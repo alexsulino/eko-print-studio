@@ -25,11 +25,19 @@ export function cloneToSession(master: EkoDocument): EkoDocument {
       createdAt: now,
       updatedAt: now,
     },
+    rules: {
+      ...clone.rules,
+      // Session personalization may add/duplicate editable content; masters stay locked.
+      allowAddElements: true,
+      allowDeleteElements: true,
+    },
     permissions: defaultPermissions({
       ...clone.permissions,
       lockMaster: false,
       canEdit: true,
       canSave: true,
+      canAddElements: true,
+      canDeleteElements: true,
     }),
   }
 }

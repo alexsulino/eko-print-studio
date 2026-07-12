@@ -50,6 +50,12 @@ export interface ElementBase {
   transform: ElementTransform
   metadata: Record<string, unknown>
   constraints: ElementConstraints
+  /** Parent group id when nested (Document Graph). */
+  parentId?: string | null
+  /** Owning surface id (optional explicit ownership). */
+  surfaceId?: string | null
+  /** Optional region association. */
+  regionId?: string | null
 }
 
 export interface TextProperties {
@@ -109,9 +115,18 @@ export interface VariableElement extends ElementBase {
   properties: VariableProperties
 }
 
+export interface GroupProperties {
+  childIds: string[]
+}
+
+export interface GroupElement extends ElementBase {
+  type: 'group'
+  properties: GroupProperties
+}
+
 /** Future stubs — typed for registry extension. */
 export interface StubElement extends ElementBase {
-  type: 'svg' | 'qr-code' | 'barcode' | 'group' | 'mask' | 'mockup'
+  type: 'svg' | 'qr-code' | 'barcode' | 'mask' | 'mockup'
   properties: Record<string, unknown>
 }
 
@@ -120,6 +135,7 @@ export type EkoElement =
   | ImageElement
   | ShapeElement
   | VariableElement
+  | GroupElement
   | StubElement
 
 export type RuleAction =

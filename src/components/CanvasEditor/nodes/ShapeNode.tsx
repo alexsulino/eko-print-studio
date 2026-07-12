@@ -5,12 +5,21 @@ import type Konva from 'konva'
 interface ShapeNodeProps {
   element: ShapeElement
   draggable: boolean
-  onSelect: (id: string) => void
+  selected?: boolean
+  onSelect: (id: string, evt: { evt: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean } }) => void
+  onDragMove?: (id: string, x: number, y: number) => { x: number; y: number }
   onDragEnd: (id: string, x: number, y: number) => void
   onNodeRef?: (id: string, node: Konva.Node | null) => void
 }
 
-export function ShapeNode({ element, draggable, onSelect, onDragEnd, onNodeRef }: ShapeNodeProps) {
+export function ShapeNode({
+  element,
+  draggable,
+  onSelect,
+  onDragMove,
+  onDragEnd,
+  onNodeRef,
+}: ShapeNodeProps) {
   const { transform, properties } = element
   const common = {
     id: element.id,
@@ -23,9 +32,28 @@ export function ShapeNode({ element, draggable, onSelect, onDragEnd, onNodeRef }
     opacity: properties.opacity ?? 1,
     draggable,
     visible: element.visible,
-    onClick: () => onSelect(element.id),
-    onTap: () => onSelect(element.id),
-    onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => onDragEnd(element.id, e.target.x(), e.target.y()),
+    onClick: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      e.cancelBubble = true
+      onSelect(element.id, e)
+    },
+    onTap: (e: Konva.KonvaEventObject<Event>) => {
+      e.cancelBubble = true
+      const native = e.evt as Partial<MouseEvent>
+      onSelect(element.id, {
+        evt: {
+          ctrlKey: native.ctrlKey,
+          metaKey: native.metaKey,
+          shiftKey: native.shiftKey,
+        },
+      })
+    },
+    onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => {
+      if (!onDragMove) return
+      const snapped = onDragMove(element.id, e.target.x(), e.target.y())
+      e.target.position(snapped)
+    },
+    onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) =>
+      onDragEnd(element.id, e.target.x(), e.target.y()),
     ref: (node: Konva.Node | null) => onNodeRef?.(element.id, node),
   }
 

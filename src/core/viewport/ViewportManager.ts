@@ -4,6 +4,7 @@ import { getDocumentPixelSize } from '@/core/document/units'
 
 /**
  * ViewportManager — zoom, pan, fit, and document↔screen mapping.
+ * Viewport never mutates EkoDocument; it only controls visualization.
  */
 export class ViewportManager {
   private state: ViewportState = {
@@ -31,6 +32,38 @@ export class ViewportManager {
     this.setZoom(this.state.zoom + delta)
   }
 
+  /** Zoom toward a screen-space point (e.g. cursor). */
+  zoomAt(nextZoom: number, screenX: number, screenY: number): ViewportState {
+    const prev = this.state.zoom
+    const zoom = Math.min(4, Math.max(0.1, nextZoom))
+    const docX = (screenX - this.state.panX) / prev
+    const docY = (screenY - this.state.panY) / prev
+    this.state.zoom = zoom
+    this.state.panX = screenX - docX * zoom
+    this.state.panY = screenY - docY * zoom
+    return this.getState()
+  }
+
+  zoomIn(step = 0.1): ViewportState {
+    this.zoomBy(step)
+    return this.getState()
+  }
+
+  zoomOut(step = 0.1): ViewportState {
+    this.zoomBy(-step)
+    return this.getState()
+  }
+
+  zoomTo100(canvas?: DocumentCanvas): ViewportState {
+    this.setZoom(1)
+    if (canvas) {
+      const { widthPx, heightPx } = getDocumentPixelSize(canvas)
+      this.state.panX = (this.state.stageWidth - widthPx) / 2
+      this.state.panY = (this.state.stageHeight - heightPx) / 2
+    }
+    return this.getState()
+  }
+
   setPan(x: number, y: number): void {
     this.state.panX = x
     this.state.panY = y
@@ -44,13 +77,18 @@ export class ViewportManager {
   /** Fit document into the stage with padding. */
   fitToStage(canvas: DocumentCanvas, padding = 48): ViewportState {
     const { widthPx, heightPx } = getDocumentPixelSize(canvas)
+    return this.fitToPixels(widthPx, heightPx, padding)
+  }
+
+  /** Fit an explicit paper size (surface / layout) into the stage. */
+  fitToPixels(widthPx: number, heightPx: number, padding = 48): ViewportState {
     const availableW = Math.max(this.state.stageWidth - padding * 2, 1)
     const availableH = Math.max(this.state.stageHeight - padding * 2, 1)
-    const zoom = Math.min(availableW / widthPx, availableH / heightPx, 1)
+    const zoom = Math.min(availableW / Math.max(widthPx, 1), availableH / Math.max(heightPx, 1), 4)
 
-    this.state.zoom = zoom
-    this.state.panX = (this.state.stageWidth - widthPx * zoom) / 2
-    this.state.panY = (this.state.stageHeight - heightPx * zoom) / 2
+    this.state.zoom = Math.max(0.1, zoom)
+    this.state.panX = (this.state.stageWidth - widthPx * this.state.zoom) / 2
+    this.state.panY = (this.state.stageHeight - heightPx * this.state.zoom) / 2
 
     return this.getState()
   }

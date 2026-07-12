@@ -18,19 +18,22 @@ export class LocalDocumentProvider implements DocumentProvider {
   }
 
   private seed(): void {
-    const master = serializeDocument(sampleMasterTemplate)
-    this.memory.set(master.id, master)
-
     try {
       const raw = localStorage.getItem(this.storageKey)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as EkoDocument[]
-      for (const doc of parsed) {
-        this.memory.set(doc.id, doc)
+      if (raw) {
+        const parsed = JSON.parse(raw) as EkoDocument[]
+        for (const doc of parsed) {
+          this.memory.set(doc.id, doc)
+        }
       }
     } catch {
       // Ignore corrupt local cache in Phase 1.
     }
+
+    // Always re-seed the canonical sample master from code so a stale localStorage
+    // copy cannot blank the canvas (empty/invalid surface.elementIds, missing elements).
+    const master = serializeDocument(sampleMasterTemplate)
+    this.memory.set(master.id, master)
   }
 
   private persist(): void {

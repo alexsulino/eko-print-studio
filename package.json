@@ -1,7 +1,7 @@
 {
   "name": "eko-print-studio",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Eko Print Studio — plataforma profissional Web-to-Print para criação, personalização e preparação de artes para produção gráfica.",
   "type": "module",
   "keywords": [

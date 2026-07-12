@@ -4,7 +4,7 @@ Engine profissional para personalização gráfica e Web-to-Print.
 
 **Eko Print Studio** é uma plataforma para criação, personalização e preparação de artes para produção gráfica. O editor visual é um dos módulos — não o produto inteiro.
 
-**Foundation Release:** `v0.1.0` — ver [`VERSION.md`](VERSION.md) e [`CHANGELOG.md`](CHANGELOG.md).
+**Foundation:** `v0.1.0` · **Interaction:** `v0.2.0` · **Layout:** `v0.3.0` · **Graph/Layers:** `v0.4.0` · **Properties:** `v0.5.0` — ver [`VERSION.md`](VERSION.md).
 
 O **EkoDocument JSON** é a fonte de verdade. Konva é apenas a tecnologia interna de renderização e manipulação no canvas.
 
@@ -60,16 +60,17 @@ Template Master
 
 ## Roadmap (resumo)
 
-1. **Foundation**
-2. **Document Engine**
-3. **Layers**
-4. **Property Engine**
-5. **Assets**
-6. **Typography**
-7. **Variables**
-8. **WooCommerce Adapter**
-9. **Production Engine**
-10. **Plugin SDK**
+1. **Foundation** (v0.1.0)
+2. **Interaction Engine** (v0.2.0)
+3. **Document & Layout Engine** (v0.3.0)
+4. **Document Graph & Layer Engine** (v0.4.0)
+5. **Property & Attribute Engine** (v0.5.0)
+6. **Assets**
+7. **Typography**
+8. **Variables**
+9. **WooCommerce Adapter**
+10. **Production Engine**
+11. **Plugin SDK**
 
 Detalhes em [`docs/roadmap.md`](docs/roadmap.md). Visão do produto em [`docs/vision.md`](docs/vision.md). Arquitetura em [`docs/architecture.md`](docs/architecture.md).
 

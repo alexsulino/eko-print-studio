@@ -173,7 +173,7 @@ export const sampleMasterTemplate: EkoDocument = {
         rotate: true,
         replaceImage: true,
         crop: true,
-        delete: false,
+        delete: true,
       },
       properties: {
         src: '/sample/demo-image.svg',

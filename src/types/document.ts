@@ -1,5 +1,8 @@
 /** Semantic schema version for EkoDocument compatibility. */
-export const CURRENT_SCHEMA_VERSION = '1.0.0'
+export const CURRENT_SCHEMA_VERSION = '1.1.0'
+
+/** Oldest schema still accepted by normalize/validate. */
+export const MIN_SUPPORTED_SCHEMA_VERSION = '1.0.0'
 
 export type DocumentType = 'template' | 'session' | 'production'
 export type Unit = 'mm' | 'cm' | 'px'
@@ -82,16 +85,29 @@ export interface DocumentVariables {
   values: Record<string, string>
 }
 
-export interface EkoPage {
-  id: string
-  name: string
-  elements: import('./element').EkoElement[]
-}
+export type {
+  DocumentPage,
+  DocumentSurface,
+  DocumentRegion,
+  EditorGuide,
+  EkoPage,
+} from './layout'
 
+import type { DocumentPage, DocumentSurface, DocumentRegion, EditorGuide } from './layout'
+
+/**
+ * Canonical Web-to-Print document.
+ *
+ * Layout model (Phase 3):
+ * Document → Pages / Surfaces → Regions → Elements
+ *
+ * Root `elements[]` remain the flat source of truth for Interaction Engine.
+ * Surfaces/pages reference elements by id for multi-face / multi-page products.
+ */
 export interface EkoDocument {
   id: string
   type: DocumentType
-  /** Semantic version of this document schema (e.g. "1.0.0"). */
+  /** Semantic version of this document schema (e.g. "1.1.0"). */
   schemaVersion: string
   metadata: DocumentMetadata
   canvas: DocumentCanvas
@@ -99,7 +115,17 @@ export interface EkoDocument {
   assets: DocumentAssets
   permissions: DocumentPermissions
   variables: DocumentVariables
+  /** Flat element collection (canonical for editing / commands). */
   elements: import('./element').EkoElement[]
-  /** Prepared for multi-page; Phase 1 keeps elements on the root. */
-  pages?: EkoPage[]
+  /** Multi-page products (folder, calendar, book). */
+  pages?: DocumentPage[]
+  /** Product faces (front/back, shirt sides, packaging panels). */
+  surfaces?: DocumentSurface[]
+  /** Printable / safe / bleed / margin / custom regions. */
+  regions?: DocumentRegion[]
+  /**
+   * Optional editor guides for authoring sessions.
+   * Never part of production output — stripped when type === 'production'.
+   */
+  guides?: EditorGuide[]
 }

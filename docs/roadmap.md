@@ -8,17 +8,29 @@ Base do produto: schema `EkoDocument`, canvas editável, Template Master → Ses
 
 **Status:** entregue em **v0.1.0** (Foundation Release).
 
+## Interaction Engine
+
+Infraestrutura de interação: Selection, Keyboard, Clipboard, Transformer, Snapping, Viewport gestures, Alignment Guides e separação de estados.
+
+**Status:** entregue em **v0.2.0**.
+
 ## Document Engine
 
-Ciclo de vida completo do documento: criação, validação, serialização, versionamento semântico do schema, páginas múltiplas e operações de persistência consistentes via Provider.
+Ciclo de vida completo do documento e **Document Layout Model**: Pages, Surfaces, Regions, Coordinate System, Layout Resolver, Renderer Adapter, Event Bus, Anchors e Element Lifecycle (estrutura).
+
+**Status:** entregue em **v0.3.0** (Document & Layout Engine). Schema `1.1.0`.
 
 ## Layers
 
-Modelo e UX de camadas: ordenação, agrupamento, visibilidade/bloqueio, hierarquia alinhada ao Object Registry.
+**Document Graph & Layer Engine**: árvore documental, ownership, z-order, grupos, hierarquia de lock/visibility, Layer Panel.
+
+**Status:** entregue em **v0.4.0**.
 
 ## Property Engine
 
-Motor de propriedades e edição tipada: painéis, constraints de propriedade, binding com Rules Engine e Object Registry.
+**Property & Attribute Engine**: schemas tipados, grupos (Transform / Appearance / Typography / Content), `UpdateProperty` command, PropertiesPanel baseado em descriptors do domínio, Rules bloqueando updates proibidos.
+
+**Status:** entregue em **v0.5.0**.
 
 ## Assets
 

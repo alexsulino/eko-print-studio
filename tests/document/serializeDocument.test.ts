@@ -9,7 +9,7 @@ describe('serializeDocument', () => {
     const serialized = serializeDocument(source)
 
     expect(serialized.id).toBe(source.id)
-    expect(serialized.schemaVersion).toBe('1.0.0')
+    expect(serialized.schemaVersion).toBe('1.1.0')
     expect(serialized.elements).toHaveLength(source.elements.length)
     expect(serialized.permissions).toBeDefined()
     expect(serialized.variables.definitions[0]?.key).toBe('customer_name')

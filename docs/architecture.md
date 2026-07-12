@@ -28,7 +28,26 @@ Production Document
 Print Pipeline
 ```
 
-| Etapa | Status (v0.1.0) |
+## Document Layout Model (v0.3.0)
+
+```text
+EkoDocument
+  ├── pages[]        (folder, calendário, livro)
+  ├── surfaces[]     (frente / verso / faces do produto)
+  ├── regions[]      (printable, safe, bleed, margin, custom)
+  ├── elements[]     (coleção plana canônica para edição)
+  └── guides[]       (apenas edição — removidos na produção)
+```
+
+Pipeline de projeção:
+
+```text
+EkoDocument → Layout Resolver → Renderer Adapter → Konva
+```
+
+Coordenadas de domínio (`CoordinateSystem`) isolam document / viewport / region. Konva nunca escreve no documento.
+
+| Etapa | Status (v0.3.0) |
 |-------|-----------------|
 | Template Master | Implementado |
 | Session Design (`createSession` / `cloneToSession`) | Implementado |

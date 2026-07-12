@@ -3,9 +3,12 @@ import { useEffect, useRef } from 'react'
 import type Konva from 'konva'
 
 interface SelectionTransformerProps {
-  selectedId: string | null
+  selectedIds: string[]
   nodeMap: Map<string, Konva.Node>
-  enabled: boolean
+  nodeMapVersion: number
+  resizeEnabled: boolean
+  rotateEnabled: boolean
+  keepRatio: boolean
   onTransformEnd: (payload: {
     id: string
     x: number
@@ -19,9 +22,12 @@ interface SelectionTransformerProps {
 }
 
 export function SelectionTransformer({
-  selectedId,
+  selectedIds,
   nodeMap,
-  enabled,
+  nodeMapVersion,
+  resizeEnabled,
+  rotateEnabled,
+  keepRatio,
   onTransformEnd,
 }: SelectionTransformerProps) {
   const transformerRef = useRef<Konva.Transformer>(null)
@@ -30,57 +36,70 @@ export function SelectionTransformer({
     const transformer = transformerRef.current
     if (!transformer) return
 
-    if (!selectedId || !enabled) {
+    if (!selectedIds.length || (!resizeEnabled && !rotateEnabled)) {
       transformer.nodes([])
       transformer.getLayer()?.batchDraw()
       return
     }
 
-    const node = nodeMap.get(selectedId)
-    if (!node) {
-      transformer.nodes([])
-      return
-    }
+    const nodes = selectedIds
+      .map((id) => nodeMap.get(id))
+      .filter((node): node is Konva.Node => Boolean(node))
 
-    transformer.nodes([node])
+    transformer.nodes(nodes)
     transformer.getLayer()?.batchDraw()
-  }, [selectedId, nodeMap, enabled])
+  }, [selectedIds, nodeMap, nodeMapVersion, resizeEnabled, rotateEnabled])
 
   return (
     <Transformer
       ref={transformerRef}
-      rotateEnabled={enabled}
+      rotateEnabled={rotateEnabled && selectedIds.length === 1}
+      keepRatio={keepRatio}
       enabledAnchors={
-        enabled
-          ? ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']
+        resizeEnabled
+          ? [
+              'top-left',
+              'top-right',
+              'bottom-left',
+              'bottom-right',
+              'middle-left',
+              'middle-right',
+              'top-center',
+              'bottom-center',
+            ]
           : []
       }
       boundBoxFunc={(oldBox, newBox) => {
-        if (newBox.width < 8 || newBox.height < 8) return oldBox
+        if (Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8) return oldBox
         return newBox
       }}
       onTransformEnd={() => {
-        if (!selectedId) return
-        const node = nodeMap.get(selectedId)
+        if (selectedIds.length !== 1) return
+        const id = selectedIds[0]!
+        const node = nodeMap.get(id)
         if (!node) return
 
         const scaleX = node.scaleX()
         const scaleY = node.scaleY()
-        const width = Math.max(8, node.width() * scaleX)
-        const height = Math.max(8, node.height() * scaleY)
+        const width = Math.max(8, Math.abs(node.width() * scaleX))
+        const height = Math.max(8, Math.abs(node.height() * scaleY))
+        const flipX = scaleX < 0 ? -1 : 1
+        const flipY = scaleY < 0 ? -1 : 1
 
-        node.scaleX(1)
-        node.scaleY(1)
+        node.scaleX(flipX)
+        node.scaleY(flipY)
+        node.width(width)
+        node.height(height)
 
         onTransformEnd({
-          id: selectedId,
+          id,
           x: node.x(),
           y: node.y(),
           width,
           height,
           rotation: node.rotation(),
-          scaleX: 1,
-          scaleY: 1,
+          scaleX: flipX,
+          scaleY: flipY,
         })
       }}
     />
