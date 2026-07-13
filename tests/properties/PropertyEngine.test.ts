@@ -17,8 +17,8 @@ describe('PropertyEngine', () => {
 
   it('marks move-blocked transform fields as not editable', () => {
     const session = normalizeDocument(cloneToSession(sampleMasterTemplate))
-    const name = session.elements.find((el) => el.slug === 'customer-name')!
-    const x = PropertyEngine.getDescriptors(session, name).find((d) => d.path === 'transform.x')
+    const brand = session.elements.find((el) => el.slug === 'brand-logo')!
+    const x = PropertyEngine.getDescriptors(session, brand).find((d) => d.path === 'transform.x')
     expect(x?.editable).toBe(false)
     expect(x?.reason?.length).toBeGreaterThan(0)
   })
@@ -42,15 +42,15 @@ describe('PropertyEngine', () => {
 
   it('blocks forbidden property updates via rules', () => {
     const session = normalizeDocument(cloneToSession(sampleMasterTemplate))
-    const name = session.elements.find((el) => el.slug === 'customer-name')!
-    const blocked = PropertyEngine.createUpdateCommand(session, name.id, 'transform.x', 999)
+    const brand = session.elements.find((el) => el.slug === 'brand-logo')!
+    const blocked = PropertyEngine.createUpdateCommand(session, brand.id, 'transform.x', 999)
     expect(blocked.success).toBe(false)
 
     const applied = applyCommand(session, {
       type: 'UpdateProperty',
-      elementId: name.id,
+      elementId: brand.id,
       path: 'transform.x',
-      oldValue: name.transform.x,
+      oldValue: brand.transform.x,
       newValue: 999,
       timestamp: Date.now(),
     })

@@ -1,0 +1,143 @@
+/* Asset Library — left sidebar panel */
+
+.eko-asset-library {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  height: 100%;
+  min-height: 0;
+  padding: 0.75rem 0.85rem;
+}
+
+.eko-asset-library--empty {
+  justify-content: center;
+  align-items: center;
+  color: var(--muted, #64748b);
+  font-size: 0.85rem;
+}
+
+.eko-asset-library__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.eko-asset-library__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.eko-asset-library__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted, #64748b);
+}
+
+.eko-asset-library__toolbar {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px dashed var(--line, #c9d6e5);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.eko-asset-library__toolbar-slot {
+  font-size: 0.7rem;
+  color: var(--muted, #94a3b8);
+}
+
+.eko-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  overflow: auto;
+  min-height: 0;
+  padding-bottom: 0.5rem;
+}
+
+.eko-asset-grid--empty {
+  display: block;
+}
+
+.eko-asset-grid__empty {
+  margin: 1rem 0;
+  font-size: 0.8rem;
+  color: var(--muted, #64748b);
+  text-align: center;
+}
+
+.eko-asset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.4rem;
+  border: 1px solid var(--line, #c9d6e5);
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.eko-asset-card:hover {
+  border-color: #7aa0c4;
+}
+
+.eko-asset-card--selected,
+.eko-asset-card:focus-visible {
+  border-color: #2b6cb0;
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.2);
+  outline: none;
+}
+
+.eko-asset-card__preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 5px;
+  background:
+    linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+}
+
+.eko-asset-card__thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.eko-asset-card__placeholder {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.eko-asset-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.eko-asset-card__name {
+  overflow: hidden;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eko-asset-card__type {
+  font-size: 0.65rem;
+  color: var(--muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}

@@ -11,19 +11,19 @@ describe('TemplateRulesEngine', () => {
     expect(decision.reason.length).toBeGreaterThan(0)
   })
 
-  it('allows customer text edits inside a session', () => {
+  it('allows customer text move and edits inside a session', () => {
     const session = cloneToSession(sampleMasterTemplate)
     const name = session.elements.find((el) => el.slug === 'customer-name')!
     expect(templateRulesEngine.can(name, 'changeText', session).allowed).toBe(true)
-    expect(templateRulesEngine.can(name, 'move', session).allowed).toBe(false)
+    expect(templateRulesEngine.can(name, 'move', session).allowed).toBe(true)
   })
 
-  it('denies selecting non-selectable brand elements', () => {
+  it('allows selecting protected brand elements but denies move', () => {
     const session = cloneToSession(sampleMasterTemplate)
     const brand = session.elements.find((el) => el.slug === 'brand-logo')!
-    expect(templateRulesEngine.can(brand, 'select', session).allowed).toBe(false)
+    expect(templateRulesEngine.can(brand, 'select', session).allowed).toBe(true)
+    expect(templateRulesEngine.can(brand, 'move', session).allowed).toBe(false)
   })
-
   it('validates allowed fonts', () => {
     const session = cloneToSession(sampleMasterTemplate)
     expect(templateRulesEngine.canUseFont(session, 'Montserrat').allowed).toBe(true)

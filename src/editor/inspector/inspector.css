@@ -1,0 +1,170 @@
+/* Properties Inspector Foundation — editor UI only. */
+
+.eko-properties-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+  min-height: 0;
+  padding: 0.75rem 0.85rem 1rem;
+  overflow: auto;
+  background: var(--panel, #f8fafc);
+}
+
+.eko-properties-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.eko-properties-panel__header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.eko-properties-panel__type {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #5b6b7c);
+  border: 1px solid var(--line, #c9d6e5);
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  background: #fff;
+}
+
+.eko-properties-panel__meta {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--line, #c9d6e5);
+  border-radius: 0.5rem;
+  background: #fff;
+  font-size: 0.78rem;
+}
+
+.eko-properties-panel__meta div {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.eko-properties-panel__meta dt {
+  margin: 0;
+  color: var(--muted, #5b6b7c);
+  font-weight: 600;
+}
+
+.eko-properties-panel__meta dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eko-properties-panel__meta-hint {
+  color: var(--muted, #5b6b7c);
+  font-size: 0.7rem;
+}
+
+.eko-properties-panel__error {
+  margin: 0;
+  color: var(--danger, #9b1c1c);
+  background: #fff5f5;
+  border: 1px solid #f0c7c7;
+  border-radius: 0.45rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.eko-inspector-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+}
+
+.eko-inspector-empty h2 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.eko-inspector-empty p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--ink, #142033);
+}
+
+.eko-inspector-empty__hint {
+  color: var(--muted, #5b6b7c) !important;
+  font-size: 0.78rem !important;
+  line-height: 1.45;
+}
+
+.eko-inspector-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.eko-inspector-section h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #5b6b7c);
+}
+
+.eko-inspector-section__body {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.eko-property-field {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.eko-property-field__label {
+  color: var(--ink, #142033);
+  font-weight: 550;
+}
+
+.eko-property-field__reason {
+  color: var(--muted, #5b6b7c);
+  font-style: normal;
+  font-weight: 400;
+  font-size: 0.72rem;
+}
+
+.eko-property-field input,
+.eko-property-field select,
+.eko-property-field textarea {
+  width: 100%;
+  border: 1px solid var(--line, #c9d6e5);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+
+.eko-property-field input[type='color'] {
+  padding: 0.15rem;
+  height: 2rem;
+  cursor: pointer;
+}
+
+.eko-property-field input:disabled,
+.eko-property-field select:disabled,
+.eko-property-field textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #eef2f6;
+}

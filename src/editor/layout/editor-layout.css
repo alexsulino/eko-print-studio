@@ -1,0 +1,316 @@
+/* Editor UX Foundation — layout chrome (no canvas / core coupling). */
+
+.eko-editor-layout {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--bg, #e7eef6);
+  color: var(--ink, #142033);
+}
+
+.eko-editor-layout__toolbar {
+  min-height: 0;
+  z-index: 2;
+}
+
+.eko-editor-layout__workspace {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) minmax(240px, 320px);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.eko-editor-layout__left,
+.eko-editor-layout__right {
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel, #f8fafc);
+}
+
+.eko-editor-layout__left {
+  border-right: 1px solid var(--line, #c9d6e5);
+}
+
+.eko-editor-layout__right {
+  border-left: 1px solid var(--line, #c9d6e5);
+}
+
+.eko-editor-layout__canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(20, 32, 51, 0.04), transparent 40%),
+    #d5dee8;
+}
+
+.eko-editor-layout__bottom {
+  z-index: 2;
+  border-top: 1px solid var(--line, #c9d6e5);
+}
+
+/* —— Top toolbar —— */
+
+.eko-top-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--line, #c9d6e5);
+  background: rgba(248, 250, 252, 0.94);
+  backdrop-filter: blur(8px);
+}
+
+.eko-top-toolbar__brand {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.eko-top-toolbar__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.55rem;
+  background: var(--accent, #0f6b4c);
+  color: var(--accent-ink, #fff);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.eko-top-toolbar__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.eko-top-toolbar__titles strong {
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+.eko-top-toolbar__subtitle {
+  color: var(--muted, #5b6b7c);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 28rem;
+}
+
+.eko-top-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.eko-top-toolbar__actions button {
+  border: 1px solid var(--line, #c9d6e5);
+  background: #fff;
+  color: inherit;
+  border-radius: 0.45rem;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.eko-top-toolbar__actions button:hover:not(:disabled) {
+  border-color: var(--accent, #0f6b4c);
+}
+
+.eko-top-toolbar__actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.eko-top-toolbar__divider {
+  width: 1px;
+  height: 1.25rem;
+  background: var(--line, #c9d6e5);
+  margin: 0 0.15rem;
+}
+
+/* —— Left sidebar —— */
+
+.eko-left-sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.eko-left-sidebar__tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--line, #c9d6e5);
+  background: #eef3f8;
+}
+
+.eko-left-sidebar__tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted, #5b6b7c);
+  padding: 0.55rem 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.eko-left-sidebar__tab:hover {
+  color: var(--ink, #142033);
+}
+
+.eko-left-sidebar__tab--active {
+  color: var(--accent, #0f6b4c);
+  border-bottom-color: var(--accent, #0f6b4c);
+  background: rgba(15, 107, 76, 0.06);
+}
+
+.eko-left-sidebar__body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.eko-left-sidebar__body .layers-panel,
+.eko-left-sidebar__body .eko-layers-panel {
+  border-right: none;
+  height: 100%;
+}
+
+/* —— Right inspector —— */
+
+.eko-right-inspector {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.eko-right-inspector__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--line, #c9d6e5);
+  background: #eef3f8;
+}
+
+.eko-right-inspector__header h2 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.eko-right-inspector__badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #5b6b7c);
+  border: 1px solid var(--line, #c9d6e5);
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  background: #fff;
+}
+
+.eko-right-inspector__body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.eko-right-inspector__body .properties-panel,
+.eko-right-inspector__body .eko-properties-panel {
+  border-left: none;
+  height: 100%;
+  box-shadow: none;
+}
+
+/* —— Placeholders —— */
+
+.eko-panel-placeholder {
+  padding: 1rem 0.9rem;
+}
+
+.eko-panel-placeholder h2 {
+  margin: 0 0 0.45rem;
+  font-size: 0.95rem;
+}
+
+.eko-panel-placeholder p {
+  margin: 0;
+  color: var(--muted, #5b6b7c);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+/* —— Bottom status —— */
+
+.eko-bottom-status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.35rem 0.85rem;
+  background: rgba(248, 250, 252, 0.96);
+  color: var(--muted, #5b6b7c);
+  font-size: 0.75rem;
+}
+
+.eko-bottom-status__item {
+  white-space: nowrap;
+}
+
+.eko-bottom-status__spacer {
+  flex: 1;
+}
+
+/* —— Responsive —— */
+
+@media (max-width: 960px) {
+  .eko-editor-layout__workspace {
+    grid-template-columns: 200px minmax(0, 1fr) 220px;
+  }
+}
+
+@media (max-width: 720px) {
+  .eko-editor-layout__workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
+  }
+
+  .eko-editor-layout__left,
+  .eko-editor-layout__right {
+    max-height: 40vh;
+    border-left: none;
+    border-right: none;
+    border-top: 1px solid var(--line, #c9d6e5);
+  }
+
+  .eko-editor-layout__left {
+    order: 2;
+  }
+
+  .eko-editor-layout__canvas {
+    order: 1;
+    min-height: 45vh;
+  }
+
+  .eko-editor-layout__right {
+    order: 3;
+  }
+}

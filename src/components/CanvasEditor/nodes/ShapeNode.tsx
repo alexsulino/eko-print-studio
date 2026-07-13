@@ -1,25 +1,25 @@
+import { memo } from 'react'
 import { Circle, Line, Rect } from 'react-konva'
 import type { ShapeElement } from '@/types/element'
 import type Konva from 'konva'
+import { recordReactRender } from '@/diagnostics/dragProfiler'
+import { areCanvasNodePropsEqual, type CanvasNodeRenderProps } from './nodeRenderCompare'
 
-interface ShapeNodeProps {
+type ShapeNodeProps = CanvasNodeRenderProps & {
   element: ShapeElement
-  draggable: boolean
-  selected?: boolean
-  onSelect: (id: string, evt: { evt: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean } }) => void
-  onDragMove?: (id: string, x: number, y: number) => { x: number; y: number }
-  onDragEnd: (id: string, x: number, y: number) => void
-  onNodeRef?: (id: string, node: Konva.Node | null) => void
 }
 
-export function ShapeNode({
+function ShapeNodeComponent({
   element,
   draggable,
+  listening = true,
+  interactionCursor,
   onSelect,
   onDragMove,
   onDragEnd,
-  onNodeRef,
+  nodeRef,
 }: ShapeNodeProps) {
+  recordReactRender('ShapeNode')
   const { transform, properties } = element
   const common = {
     id: element.id,
@@ -31,7 +31,18 @@ export function ShapeNode({
     scaleY: transform.scaleY,
     opacity: properties.opacity ?? 1,
     draggable,
+    listening,
     visible: element.visible,
+    onMouseEnter: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const stage = e.target.getStage()
+      if (stage && interactionCursor) {
+        stage.container().style.cursor = interactionCursor
+      }
+    },
+    onMouseLeave: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const stage = e.target.getStage()
+      if (stage) stage.container().style.cursor = 'default'
+    },
     onClick: (e: Konva.KonvaEventObject<MouseEvent>) => {
       e.cancelBubble = true
       onSelect(element.id, e)
@@ -54,7 +65,7 @@ export function ShapeNode({
     },
     onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) =>
       onDragEnd(element.id, e.target.x(), e.target.y()),
-    ref: (node: Konva.Node | null) => onNodeRef?.(element.id, node),
+    ref: nodeRef,
   }
 
   if (properties.shape === 'circle') {
@@ -95,3 +106,5 @@ export function ShapeNode({
     />
   )
 }
+
+export const ShapeNode = memo(ShapeNodeComponent, areCanvasNodePropsEqual)

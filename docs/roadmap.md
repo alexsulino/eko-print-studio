@@ -32,6 +32,12 @@ Ciclo de vida completo do documento e **Document Layout Model**: Pages, Surfaces
 
 **Status:** entregue em **v0.5.0**.
 
+## Stability Layer
+
+**Quality Hardening** antes da Asset Engine: Error Boundary no canvas, Diagnostics dev-only (`Ctrl+Shift+D`), `DocumentHealth` (auditoria read-only), estabilização do renderer (CSS/Stage) e testes de qualidade.
+
+**Status:** entregue em **v0.5.1**.
+
 ## Assets
 
 Registro robusto de fontes, imagens e fundos; resolução de URLs; fontes permitidas; integração com mídia externa (CDN, WP Media, API).

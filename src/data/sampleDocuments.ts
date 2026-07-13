@@ -5,6 +5,8 @@ import { defaultPermissions, defaultVariables } from '@/core/document/createDocu
 /**
  * Sample Template Master — Caneca Brasil (Web-to-Print demo).
  * Physical size: 100mm × 100mm @ 300 DPI.
+ *
+ * Protected template chrome (brand / product / system) vs fully editable demos.
  */
 export const sampleMasterTemplate: EkoDocument = {
   id: 'template_caneca-brasil',
@@ -95,9 +97,9 @@ export const sampleMasterTemplate: EkoDocument = {
         scaleX: 1,
         scaleY: 1,
       },
-      metadata: { role: 'brand-mark' },
+      metadata: { role: 'brand-mark', protected: true },
       constraints: {
-        selectable: false,
+        selectable: true,
         move: false,
         resize: false,
         rotate: false,
@@ -119,7 +121,7 @@ export const sampleMasterTemplate: EkoDocument = {
       category: 'product',
       name: 'Faixa produto',
       visible: true,
-      locked: false,
+      locked: true,
       editable: false,
       zIndex: 1,
       transform: {
@@ -131,9 +133,9 @@ export const sampleMasterTemplate: EkoDocument = {
         scaleX: 1,
         scaleY: 1,
       },
-      metadata: {},
+      metadata: { protected: true },
       constraints: {
-        selectable: false,
+        selectable: true,
         move: false,
         resize: false,
         rotate: false,
@@ -147,6 +149,43 @@ export const sampleMasterTemplate: EkoDocument = {
       },
     },
     {
+      id: 'el_demo_shape',
+      slug: 'demo-shape',
+      type: 'shape',
+      category: 'customer',
+      name: 'Forma editável',
+      visible: true,
+      locked: false,
+      editable: true,
+      zIndex: 2,
+      transform: {
+        x: 100,
+        y: 220,
+        width: 180,
+        height: 180,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+      },
+      metadata: {},
+      constraints: {
+        selectable: true,
+        move: true,
+        resize: true,
+        rotate: true,
+        changeColor: true,
+        delete: true,
+      },
+      properties: {
+        shape: 'rect',
+        fill: '#3B82F6',
+        stroke: '#1E3A8A',
+        strokeWidth: 3,
+        cornerRadius: 16,
+        opacity: 1,
+      },
+    },
+    {
       id: 'el_customer_photo',
       slug: 'customer-photo',
       type: 'image',
@@ -155,7 +194,7 @@ export const sampleMasterTemplate: EkoDocument = {
       visible: true,
       locked: false,
       editable: true,
-      zIndex: 2,
+      zIndex: 3,
       transform: {
         x: 340,
         y: 220,
@@ -182,6 +221,46 @@ export const sampleMasterTemplate: EkoDocument = {
       },
     },
     {
+      id: 'el_demo_title',
+      slug: 'demo-title',
+      type: 'text',
+      category: 'customer',
+      name: 'Título editável',
+      visible: true,
+      locked: false,
+      editable: true,
+      zIndex: 4,
+      transform: {
+        x: 120,
+        y: 120,
+        width: 600,
+        height: 80,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+      },
+      metadata: {},
+      constraints: {
+        selectable: true,
+        move: true,
+        resize: true,
+        rotate: true,
+        changeText: true,
+        changeFont: true,
+        changeColor: true,
+        delete: true,
+      },
+      properties: {
+        text: 'Arraste e edite-me',
+        fontFamily: 'Montserrat',
+        fontSize: 48,
+        fontStyle: 'bold',
+        fill: '#0F172A',
+        align: 'left',
+        verticalAlign: 'middle',
+      },
+    },
+    {
       id: 'el_customer_name',
       slug: 'customer-name',
       type: 'text',
@@ -190,7 +269,7 @@ export const sampleMasterTemplate: EkoDocument = {
       visible: true,
       locked: false,
       editable: true,
-      zIndex: 3,
+      zIndex: 5,
       transform: {
         x: 190,
         y: 760,
@@ -203,9 +282,9 @@ export const sampleMasterTemplate: EkoDocument = {
       metadata: { variableKey: 'customer_name' },
       constraints: {
         selectable: true,
-        move: false,
+        move: true,
         resize: true,
-        rotate: false,
+        rotate: true,
         changeText: true,
         changeFont: true,
         changeColor: true,
@@ -230,7 +309,7 @@ export const sampleMasterTemplate: EkoDocument = {
       visible: true,
       locked: true,
       editable: false,
-      zIndex: 4,
+      zIndex: 6,
       transform: {
         x: 60,
         y: 60,
@@ -240,8 +319,9 @@ export const sampleMasterTemplate: EkoDocument = {
         scaleX: 1,
         scaleY: 1,
       },
-      metadata: { guide: true },
+      metadata: { guide: true, protected: true },
       constraints: {
+        // Hit-through on canvas; still listed in Layers as protected.
         selectable: false,
         move: false,
         resize: false,

@@ -1,27 +1,26 @@
+import { memo } from 'react'
 import { Image as KonvaImage } from 'react-konva'
 import type { ImageElement } from '@/types/element'
-import type Konva from 'konva'
-import { useHtmlImage } from '../hooks/useHtmlImage'
+import { recordReactRender } from '@/diagnostics/dragProfiler'
+import { useAssetResource } from '../hooks/useAssetResource'
+import { areCanvasNodePropsEqual, type CanvasNodeRenderProps } from './nodeRenderCompare'
 
-interface ImageNodeProps {
+type ImageNodeProps = CanvasNodeRenderProps & {
   element: ImageElement
-  draggable: boolean
-  selected?: boolean
-  onSelect: (id: string, evt: { evt: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean } }) => void
-  onDragMove?: (id: string, x: number, y: number) => { x: number; y: number }
-  onDragEnd: (id: string, x: number, y: number) => void
-  onNodeRef?: (id: string, node: Konva.Node | null) => void
 }
 
-export function ImageNode({
+function ImageNodeComponent({
   element,
   draggable,
+  listening = true,
+  interactionCursor,
   onSelect,
   onDragMove,
   onDragEnd,
-  onNodeRef,
+  nodeRef,
 }: ImageNodeProps) {
-  const image = useHtmlImage(element.properties.src)
+  recordReactRender('ImageNode')
+  const { image } = useAssetResource(element.properties.assetId, element.properties.src)
   const { transform, properties } = element
 
   return (
@@ -38,7 +37,18 @@ export function ImageNode({
       scaleY={transform.scaleY}
       opacity={properties.opacity ?? 1}
       draggable={draggable}
+      listening={listening}
       visible={element.visible}
+      onMouseEnter={(e) => {
+        const stage = e.target.getStage()
+        if (stage && interactionCursor) {
+          stage.container().style.cursor = interactionCursor
+        }
+      }}
+      onMouseLeave={(e) => {
+        const stage = e.target.getStage()
+        if (stage) stage.container().style.cursor = 'default'
+      }}
       onClick={(e) => {
         e.cancelBubble = true
         onSelect(element.id, e)
@@ -53,7 +63,9 @@ export function ImageNode({
         e.target.position(snapped)
       }}
       onDragEnd={(e) => onDragEnd(element.id, e.target.x(), e.target.y())}
-      ref={(node) => onNodeRef?.(element.id, node)}
+      ref={nodeRef}
     />
   )
 }
+
+export const ImageNode = memo(ImageNodeComponent, areCanvasNodePropsEqual)

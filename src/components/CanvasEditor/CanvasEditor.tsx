@@ -3,14 +3,46 @@ import { Stage, Layer, Rect } from 'react-konva'
 import type Konva from 'konva'
 import { templateRulesEngine } from '@/core/rules/TemplateRulesEngine'
 import { SelectionEngine } from '@/core/selection/SelectionEngine'
+import { resolveCanvasSelection, describeTransformCommand } from '@/editor/canvas'
 import { viewportManager } from '@/core/viewport/ViewportManager'
 import { LayoutResolver, RendererAdapter } from '@/core/layout'
+import { markRenderStart, recordRendererMetrics } from '@/diagnostics/editorDiagnostics'
+import {
+  getRuntimeBenchmarkSnapshot,
+  recordCanvasEditorRender,
+  recordNodeMapVersion,
+  recordRegistryStats,
+} from '@/diagnostics/runtimeBenchmark'
+import {
+  beginDragProfile,
+  endDragProfile,
+  installDragProfilerBridge,
+  markDragEnding,
+  recordDragMove,
+  recordMidDragPositionSample,
+  recordReactRender,
+  recordUseEffect,
+} from '@/diagnostics/dragProfiler'
 import { useEditorStore } from '@/store/editorStore'
 import { useKeyboardEngine } from '@/hooks/useKeyboardEngine'
 import { ObjectLayer } from './ObjectLayer'
 import { SelectionTransformer } from './SelectionTransformer'
 import { GuidesLayer } from './GuidesLayer'
 import { RegionsLayer } from './RegionsLayer'
+import { applyNodeRefToMap } from './hooks/konvaNodeRefRegistry'
+import { useKonvaNodeRefRegistry } from './hooks/useKonvaNodeRefRegistry'
+import { AssetResolverProvider } from './assets/AssetResolverProvider'
+import { TextEditOverlay } from '@/editor/canvas/TextEditOverlay'
+import { isInteractionSession } from '@/types/interaction'
+
+function stageSize(width: number, height: number) {
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+  }
+}
+
+const devRenderTrace = import.meta.env.DEV
 
 export function CanvasEditor() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -37,8 +69,83 @@ export function CanvasEditor() {
   const setGuides = useEditorStore((s) => s.setGuides)
   const clearGuides = useEditorStore((s) => s.clearGuides)
   const snapMove = useEditorStore((s) => s.snapMove)
+  const beginInteractionSession = useEditorStore((s) => s.beginInteractionSession)
+  const endInteractionSession = useEditorStore((s) => s.endInteractionSession)
+  const updateProperty = useEditorStore((s) => s.updateProperty)
+  const session = interaction.session
+  const textEditActive = isInteractionSession(session, 'textEdit')
+  const editingElementId = textEditActive ? session.elementId : null
 
   useKeyboardEngine(Boolean(document))
+
+  useEffect(() => {
+    installDragProfilerBridge()
+  }, [])
+
+  const handleNodeRef = useCallback((id: string, node: Konva.Node | null) => {
+    if (applyNodeRefToMap(nodeMapRef.current, id, node)) {
+      setNodeMapVersion((v) => {
+        const next = v + 1
+        recordNodeMapVersion(next, true)
+        return next
+      })
+    }
+  }, [])
+
+  const nodeRefRegistry = useKonvaNodeRefRegistry(handleNodeRef)
+
+  if (devRenderTrace) {
+    recordCanvasEditorRender()
+    recordReactRender('CanvasEditor')
+    const count = getRuntimeBenchmarkSnapshot().canvasEditorRenderCount
+    if (count === 20 || count % 50 === 0) {
+      // eslint-disable-next-line no-console
+      console.warn('[Eko DEV] CanvasEditor render count', count)
+    }
+  }
+
+  useEffect(() => {
+    recordUseEffect('CanvasEditor.documentId')
+    if (document) markRenderStart()
+  }, [document?.id])
+
+  useEffect(() => {
+    recordUseEffect('CanvasEditor.pruneNodeMap')
+    if (!document) return
+    const liveIds = new Set(document.elements.map((el) => el.id))
+    const map = nodeMapRef.current
+    let pruned = false
+    for (const id of map.keys()) {
+      if (!liveIds.has(id)) {
+        map.delete(id)
+        pruned = true
+      }
+    }
+    nodeRefRegistry.prune(liveIds)
+    if (pruned) {
+      setNodeMapVersion((v) => {
+        const next = v + 1
+        recordNodeMapVersion(next, true)
+        return next
+      })
+    }
+  }, [document?.elements, nodeRefRegistry])
+
+  useEffect(() => {
+    recordUseEffect('CanvasEditor.registryStats.everyRender')
+    recordRegistryStats(nodeRefRegistry.getStats())
+  })
+
+  useEffect(() => {
+    recordUseEffect('CanvasEditor.clearNodeMap.onDocId')
+    nodeMapRef.current.clear()
+    nodeRefRegistry.clear()
+    setNodeMapVersion((v) => {
+      const next = v + 1
+      recordNodeMapVersion(next, true)
+      return next
+    })
+  }, [document?.id, nodeRefRegistry])
 
   const frame = useMemo(() => {
     if (!document) return null
@@ -59,38 +166,71 @@ export function CanvasEditor() {
     : { widthPx: 0, heightPx: 0 }
 
   useEffect(() => {
+    recordUseEffect('CanvasEditor.rendererMetrics')
+    if (!document || !frame) return
+    recordRendererMetrics({
+      elementCount: document.elements.length,
+      resolvedElements: frame.elements.length,
+      renderNodes: frame.elements.filter((el) => el.type !== 'group').length,
+      stageWidth: viewport.stageWidth,
+      stageHeight: viewport.stageHeight,
+      zoom: viewport.zoom,
+    })
+  }, [document, frame, viewport.stageWidth, viewport.stageHeight, viewport.zoom])
+
+  const applyContainerSize = useCallback(
+    (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return
+
+      const next = stageSize(width, height)
+      const current = viewportManager.getState()
+      const sizeChanged =
+        current.stageWidth !== next.width || current.stageHeight !== next.height
+
+      if (sizeChanged) {
+        viewportManager.setStageSize(next.width, next.height)
+        setViewport({
+          ...viewportManager.getState(),
+          stageWidth: next.width,
+          stageHeight: next.height,
+        })
+      }
+
+      if (useEditorStore.getState().document && (sizeChanged || !fittedOnceRef.current)) {
+        fittedOnceRef.current = true
+        fitViewport()
+      }
+    },
+    [fitViewport, setViewport],
+  )
+
+  useEffect(() => {
     const el = containerRef.current
     if (!el) return
+
+    // Measure after layout — ResizeObserver can fire with 0×0 before the grid settles.
+    const measure = () => {
+      applyContainerSize(el.clientWidth, el.clientHeight)
+    }
+    measure()
+    const raf = requestAnimationFrame(measure)
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (!entry) return
       const width = Math.round(entry.contentRect.width)
       const height = Math.round(entry.contentRect.height)
+      // Never persist a collapsed stage size into the viewport.
       if (width <= 0 || height <= 0) return
-
-      const current = viewportManager.getState()
-      const sizeChanged = current.stageWidth !== width || current.stageHeight !== height
-      if (sizeChanged) {
-        viewportManager.setStageSize(width, height)
-        setViewport({
-          ...viewportManager.getState(),
-          stageWidth: width,
-          stageHeight: height,
-        })
-      }
-
-      // Re-fit whenever the stage gains a real size (or changes). Skipping re-fit after the
-      // first observation was leaving the paper/elements off-screen after layout settled.
-      if (useEditorStore.getState().document && (sizeChanged || !fittedOnceRef.current)) {
-        fittedOnceRef.current = true
-        fitViewport()
-      }
+      applyContainerSize(width, height)
     })
 
     observer.observe(el)
-    return () => observer.disconnect()
-  }, [fitViewport, setViewport])
+    return () => {
+      cancelAnimationFrame(raf)
+      observer.disconnect()
+    }
+  }, [applyContainerSize])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -107,22 +247,127 @@ export function CanvasEditor() {
     }
   }, [])
 
-  const handleNodeRef = useCallback((id: string, node: Konva.Node | null) => {
-    const map = nodeMapRef.current
-    if (node) {
-      if (map.get(id) === node) return
-      map.set(id, node)
-    } else {
-      if (!map.has(id)) return
-      map.delete(id)
-    }
-    setNodeMapVersion((v) => v + 1)
-  }, [])
+  const handleObjectSelect = useCallback(
+    (id: string, modifiers: { ctrlKey: boolean; shiftKey: boolean; metaKey: boolean }) => {
+      const ids = useEditorStore.getState().selectedIds
+      const next = resolveCanvasSelection(ids, id, modifiers)
+      selectElements(next)
+    },
+    [selectElements],
+  )
+
+  const handleObjectDragMove = useCallback(
+    (id: string, x: number, y: number) => {
+      beginDragProfile({ id, x, y })
+      recordDragMove({ id, x, y })
+      setInteraction({ mode: 'dragging' })
+      const snapped = snapMove(id, x, y)
+      setGuides(snapped.guides)
+      const doc = useEditorStore.getState().document
+      const ids = useEditorStore.getState().selectedIds
+      const originEl = doc?.elements.find((el) => el.id === id)
+      if (originEl) {
+        recordMidDragPositionSample({
+          nodeX: snapped.x,
+          nodeY: snapped.y,
+          docX: originEl.transform.x,
+          docY: originEl.transform.y,
+        })
+      }
+      if (doc && ids.includes(id) && ids.length > 1) {
+        const origin = doc.elements.find((el) => el.id === id)
+        if (origin) {
+          const dx = snapped.x - origin.transform.x
+          const dy = snapped.y - origin.transform.y
+          for (const otherId of ids) {
+            if (otherId === id) continue
+            const node = nodeMapRef.current.get(otherId)
+            const el = doc.elements.find((item) => item.id === otherId)
+            if (node && el) {
+              node.position({
+                x: el.transform.x + dx,
+                y: el.transform.y + dy,
+              })
+            }
+          }
+        }
+      }
+      return { x: snapped.x, y: snapped.y }
+    },
+    [setInteraction, snapMove, setGuides],
+  )
+
+  const handleObjectDragEnd = useCallback(
+    (id: string, x: number, y: number) => {
+      const snapped = snapMove(id, x, y)
+      const doc = useEditorStore.getState().document
+      const ids = useEditorStore.getState().selectedIds
+      markDragEnding()
+      if (doc && ids.includes(id) && ids.length > 1) {
+        const origin = doc.elements.find((el) => el.id === id)
+        if (origin) {
+          const dx = snapped.x - origin.transform.x
+          const dy = snapped.y - origin.transform.y
+          const moves = ids
+            .map((otherId) => {
+              const el = doc.elements.find((item) => item.id === otherId)
+              if (!el) return null
+              if (otherId === id) return { elementId: id, x: snapped.x, y: snapped.y }
+              return {
+                elementId: otherId,
+                x: el.transform.x + dx,
+                y: el.transform.y + dy,
+              }
+            })
+            .filter((m): m is { elementId: string; x: number; y: number } => Boolean(m))
+          useEditorStore.getState().moveElements(moves)
+          clearGuides()
+          endDragProfile({ id, multi: true })
+          return
+        }
+      }
+      moveElement(id, snapped.x, snapped.y)
+      clearGuides()
+      endDragProfile({ id, multi: false })
+    },
+    [snapMove, moveElement, clearGuides],
+  )
+
+  const handleTextEditStart = useCallback(
+    (id: string) => {
+      beginInteractionSession({ kind: 'textEdit', elementId: id })
+    },
+    [beginInteractionSession],
+  )
+
+  const handleTextEditCommit = useCallback(
+    (nextText: string) => {
+      const id = useEditorStore.getState().interaction.session.elementId
+      const doc = useEditorStore.getState().document
+      const el = id && doc ? doc.elements.find((item) => item.id === id) : null
+      endInteractionSession()
+      if (!el || el.type !== 'text') return
+      if (nextText === el.properties.text) return
+      updateProperty(el.id, 'properties.text', nextText)
+    },
+    [endInteractionSession, updateProperty],
+  )
+
+  const handleTextEditCancel = useCallback(() => {
+    endInteractionSession()
+  }, [endInteractionSession])
 
   const handMode = interaction.tool === 'hand' || interaction.spacePressed
 
   const primary = selectedIds[selectedIds.length - 1] ?? null
   const selectedElement = document?.elements.find((el) => el.id === primary) ?? null
+  const editingTextElement =
+    editingElementId && document
+      ? document.elements.find(
+          (el): el is Extract<typeof el, { type: 'text' }> =>
+            el.id === editingElementId && el.type === 'text',
+        )
+      : null
   const canResize = selectedElement
     ? templateRulesEngine.can(selectedElement, 'resize', document ?? undefined).allowed
     : false
@@ -134,18 +379,22 @@ export function CanvasEditor() {
     return <div className="canvas-empty">Preparando canvas…</div>
   }
 
+  const stageWidth = Math.max(1, viewport.stageWidth)
+  const stageHeight = Math.max(1, viewport.stageHeight)
+
   const toDoc = (screenX: number, screenY: number) =>
     viewportManager.screenToDocument(screenX, screenY)
 
   return (
+    <AssetResolverProvider document={document}>
     <div
       className={`canvas-shell${handMode ? ' canvas-shell--hand' : ''}`}
       ref={containerRef}
       tabIndex={0}
     >
       <Stage
-        width={viewport.stageWidth}
-        height={viewport.stageHeight}
+        width={stageWidth}
+        height={stageHeight}
         draggable={false}
         onWheel={(e) => {
           e.evt.preventDefault()
@@ -254,68 +503,13 @@ export function CanvasEditor() {
           <RegionsLayer regions={frame.regions} />
           <ObjectLayer
             document={viewDocument}
-            selectedIds={selectedIds}
-            listening={!handMode}
-            onSelect={(id, modifiers) => {
-              const next = SelectionEngine.applyClick(selectedIds, id, modifiers)
-              selectElements(next)
-            }}
-            onDragMove={(id, x, y) => {
-              setInteraction({ mode: 'dragging' })
-              const snapped = snapMove(id, x, y)
-              setGuides(snapped.guides)
-              const doc = useEditorStore.getState().document
-              const ids = useEditorStore.getState().selectedIds
-              if (doc && ids.includes(id) && ids.length > 1) {
-                const origin = doc.elements.find((el) => el.id === id)
-                if (origin) {
-                  const dx = snapped.x - origin.transform.x
-                  const dy = snapped.y - origin.transform.y
-                  for (const otherId of ids) {
-                    if (otherId === id) continue
-                    const node = nodeMapRef.current.get(otherId)
-                    const el = doc.elements.find((item) => item.id === otherId)
-                    if (node && el) {
-                      node.position({
-                        x: el.transform.x + dx,
-                        y: el.transform.y + dy,
-                      })
-                    }
-                  }
-                }
-              }
-              return { x: snapped.x, y: snapped.y }
-            }}
-            onDragEnd={(id, x, y) => {
-              const snapped = snapMove(id, x, y)
-              const doc = useEditorStore.getState().document
-              const ids = useEditorStore.getState().selectedIds
-              if (doc && ids.includes(id) && ids.length > 1) {
-                const origin = doc.elements.find((el) => el.id === id)
-                if (origin) {
-                  const dx = snapped.x - origin.transform.x
-                  const dy = snapped.y - origin.transform.y
-                  const moves = ids
-                    .map((otherId) => {
-                      const el = doc.elements.find((item) => item.id === otherId)
-                      if (!el) return null
-                      if (otherId === id) return { elementId: id, x: snapped.x, y: snapped.y }
-                      return {
-                        elementId: otherId,
-                        x: el.transform.x + dx,
-                        y: el.transform.y + dy,
-                      }
-                    })
-                    .filter((m): m is { elementId: string; x: number; y: number } => Boolean(m))
-                  useEditorStore.getState().moveElements(moves)
-                  clearGuides()
-                  return
-                }
-              }
-              moveElement(id, snapped.x, snapped.y)
-              clearGuides()
-            }}
-            onNodeRef={handleNodeRef}
+            listening={!handMode && !textEditActive}
+            editingElementId={editingElementId}
+            onSelect={handleObjectSelect}
+            onDragMove={handleObjectDragMove}
+            onDragEnd={handleObjectDragEnd}
+            onEditStart={handleTextEditStart}
+            getNodeRef={nodeRefRegistry.getNodeRef}
           />
           <GuidesLayer
             guides={interaction.guides}
@@ -323,28 +517,33 @@ export function CanvasEditor() {
             documentWidth={pixelSize.widthPx}
             documentHeight={pixelSize.heightPx}
           />
-          <SelectionTransformer
-            selectedIds={selectedIds}
-            nodeMap={nodeMapRef.current}
-            nodeMapVersion={nodeMapVersion}
-            resizeEnabled={canResize && selectedIds.length === 1}
-            rotateEnabled={canRotate && selectedIds.length === 1}
-            keepRatio={keepRatio}
-            onTransformEnd={(payload) => {
-              transformElement(payload.id, {
-                x: payload.x,
-                y: payload.y,
-                width: payload.width,
-                height: payload.height,
-                rotation: payload.rotation,
-                scaleX: payload.scaleX,
-                scaleY: payload.scaleY,
-              })
-              clearGuides()
-            }}
-          />
+          {!textEditActive ? (
+            <SelectionTransformer
+              selectedIds={selectedIds}
+              nodeMap={nodeMapRef.current}
+              nodeMapVersion={nodeMapVersion}
+              resizeEnabled={canResize && selectedIds.length === 1}
+              rotateEnabled={canRotate && selectedIds.length === 1}
+              keepRatio={keepRatio}
+              onTransformEnd={(payload) => {
+                const command = describeTransformCommand(payload)
+                transformElement(command.elementId, command.transform)
+                clearGuides()
+              }}
+            />
+          ) : null}
         </Layer>
       </Stage>
+      {editingTextElement ? (
+        <TextEditOverlay
+          key={editingTextElement.id}
+          element={editingTextElement}
+          viewport={viewport}
+          onCommit={handleTextEditCommit}
+          onCancel={handleTextEditCancel}
+        />
+      ) : null}
     </div>
+    </AssetResolverProvider>
   )
 }

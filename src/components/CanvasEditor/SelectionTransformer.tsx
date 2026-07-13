@@ -1,6 +1,7 @@
 import { Transformer } from 'react-konva'
 import { useEffect, useRef } from 'react'
 import type Konva from 'konva'
+import { recordReactRender, recordUseEffect } from '@/diagnostics/dragProfiler'
 
 interface SelectionTransformerProps {
   selectedIds: string[]
@@ -30,9 +31,11 @@ export function SelectionTransformer({
   keepRatio,
   onTransformEnd,
 }: SelectionTransformerProps) {
+  recordReactRender('SelectionTransformer')
   const transformerRef = useRef<Konva.Transformer>(null)
 
   useEffect(() => {
+    recordUseEffect('SelectionTransformer.attachNodes')
     const transformer = transformerRef.current
     if (!transformer) return
 

@@ -1,5 +1,5 @@
 import type { EkoDocument } from '@/types/document'
-import type { EkoElement, RuleAction } from '@/types/element'
+import type { EkoElement, ElementTransform, RuleAction } from '@/types/element'
 import type { EditorCommand } from '@/types/history'
 import { templateRulesEngine } from '@/core/rules/TemplateRulesEngine'
 import { commandToRuleAction } from '@/types/history'
@@ -9,6 +9,12 @@ import { LayerEngine } from '@/core/layers/LayerEngine'
 import { GroupEngine } from '@/core/groups/GroupEngine'
 import { PropertyEngine } from '@/core/properties/PropertyEngine'
 import { getPropertySchema } from '@/core/properties/propertySchemas'
+import { addBlankPage, duplicateDocumentPage } from '@/core/pages/pageMutations'
+import {
+  createElementFromAsset,
+  defaultInsertSize,
+} from '@/core/assets/createElementFromAsset'
+import { getDocumentPixelSize } from '@/core/document/units'
 import { createId } from '@/utils/id'
 
 function updateElement(
@@ -169,34 +175,70 @@ export function applyCommand(
       const el = findElement(document, command.elementId)
       if (!el) return { document, success: false, reason: 'Element not found' }
 
-      const needsMove =
-        command.transform.x !== undefined || command.transform.y !== undefined
-      const needsResize =
-        command.transform.width !== undefined ||
-        command.transform.height !== undefined ||
-        command.transform.scaleX !== undefined ||
-        command.transform.scaleY !== undefined
-      const needsRotate = command.transform.rotation !== undefined
+      const patch: Partial<ElementTransform> = {
+        ...command.transform,
+      }
 
-      if (needsMove) {
+      // Independent semantics: deny only the fields for the blocked action.
+      if (patch.x !== undefined || patch.y !== undefined) {
         const check = guard(document, el, 'move')
-        if (!check.ok) return { document, success: false, reason: check.reason }
+        if (!check.ok) {
+          delete patch.x
+          delete patch.y
+        }
       }
-      if (needsResize) {
+      if (
+        patch.width !== undefined ||
+        patch.height !== undefined ||
+        patch.scaleX !== undefined ||
+        patch.scaleY !== undefined
+      ) {
         const check = guard(document, el, 'resize')
-        if (!check.ok) return { document, success: false, reason: check.reason }
+        if (!check.ok) {
+          delete patch.width
+          delete patch.height
+          delete patch.scaleX
+          delete patch.scaleY
+        }
       }
-      if (needsRotate) {
+      if (patch.rotation !== undefined) {
         const check = guard(document, el, 'rotate')
-        if (!check.ok) return { document, success: false, reason: check.reason }
+        if (!check.ok) {
+          delete patch.rotation
+        }
+      }
+
+      const keys = Object.keys(patch) as Array<keyof typeof patch>
+      if (keys.length === 0) {
+        return { document, success: false, reason: 'No allowed transform fields in patch' }
       }
 
       return {
         success: true,
-        document: updateElement(document, command.elementId, (current) => ({
-          ...current,
-          transform: TransformerEngine.applyPatch(current.transform, command.transform),
-        })),
+        document: updateElement(document, command.elementId, (current) => {
+          const prevHeight = current.transform.height
+          const nextTransform = TransformerEngine.applyPatch(current.transform, patch)
+
+          if (current.type === 'text' && patch.height !== undefined && prevHeight > 0) {
+            const ratio = nextTransform.height / prevHeight
+            if (Number.isFinite(ratio) && Math.abs(ratio - 1) > 0.0001) {
+              const prevSize = current.properties.fontSize ?? 16
+              return {
+                ...current,
+                transform: nextTransform,
+                properties: {
+                  ...current.properties,
+                  fontSize: Math.max(1, Math.round(prevSize * ratio * 1000) / 1000),
+                },
+              }
+            }
+          }
+
+          return {
+            ...current,
+            transform: nextTransform,
+          }
+        }),
       }
     }
 
@@ -554,6 +596,85 @@ export function applyCommand(
         document: GroupEngine.ungroup(document, command.groupId),
         selectedIds: childIds,
         selectedId: childIds[0] ?? null,
+      }
+    }
+
+    case 'AddPage': {
+      if (!document.permissions.canEdit) {
+        return { document, success: false, reason: 'Document permissions deny editing' }
+      }
+      const result = addBlankPage(document, command.name)
+      return {
+        success: true,
+        document: result.document,
+        selectedIds: [],
+        selectedId: null,
+      }
+    }
+
+    case 'DuplicatePage': {
+      if (!document.permissions.canEdit) {
+        return { document, success: false, reason: 'Document permissions deny editing' }
+      }
+      const result = duplicateDocumentPage(document, command.pageId)
+      if (!result) {
+        return { document, success: false, reason: 'Page not found' }
+      }
+      return {
+        success: true,
+        document: result.document,
+        selectedIds: [],
+        selectedId: null,
+      }
+    }
+
+    case 'InsertAsset': {
+      if (document.permissions.canAddElements === false) {
+        return { document, success: false, reason: 'Document does not allow adding elements' }
+      }
+      if (document.rules.allowAddElements === false) {
+        return { document, success: false, reason: 'Template rules deny adding elements' }
+      }
+      if (!document.permissions.canEdit) {
+        return { document, success: false, reason: 'Document permissions deny editing' }
+      }
+
+      const surface = document.surfaces?.find((s) => s.id === command.surfaceId)
+      if (!surface) {
+        return { document, success: false, reason: 'Surface not found' }
+      }
+
+      const size = defaultInsertSize(command.libraryKind)
+      const width = command.width ?? size.width
+      const height = command.height ?? size.height
+      const { widthPx, heightPx } = getDocumentPixelSize(document.canvas)
+      const x = command.x ?? Math.max(0, (widthPx - width) / 2)
+      const y = command.y ?? Math.max(0, (heightPx - height) / 2)
+
+      const element = createElementFromAsset({
+        assetId: command.assetId,
+        libraryKind: command.libraryKind,
+        sourceUri: command.sourceUri,
+        name: command.name,
+        mimeType: command.mimeType,
+        x,
+        y,
+        width,
+        height,
+      })
+
+      const withElements = touch(document, [...document.elements, element])
+      const surfaces = (withElements.surfaces ?? []).map((s) =>
+        s.id === command.surfaceId
+          ? { ...s, elementIds: [...s.elementIds, element.id] }
+          : s,
+      )
+
+      return {
+        success: true,
+        document: { ...withElements, surfaces },
+        selectedIds: [element.id],
+        selectedId: element.id,
       }
     }
 

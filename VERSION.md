@@ -1,5 +1,13 @@
 # Version — Eko Print Studio
 
+## v0.5.1 — Stability Layer
+
+- [x] Canvas rendering stabilization (View/Renderer)
+- [x] React Error Boundary (canvas region)
+- [x] Editor Diagnostics (dev-only, Ctrl+Shift+D)
+- [x] Document Health checks (read-only audit)
+- [x] Log hygiene and quality tests
+
 ## v0.5.0 — Property & Attribute Engine
 
 - [x] PropertyEngine (read / validate / command)

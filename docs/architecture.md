@@ -165,3 +165,46 @@ src/
 ```
 
 Persistência nunca depende do canvas. Toda renderização deriva do documento. Nomes internos ligados à biblioteca de canvas permanecem como detalhe de implementação — não como marca do produto.
+
+---
+
+## Stability Layer (v0.5.1)
+
+Camada de qualidade antes da Asset Engine — **sem alterar o core de domínio**:
+
+| Componente | Local | Papel |
+|------------|-------|--------|
+| Error Boundary | `components/ErrorBoundary` | Isola falhas de renderização do canvas; documento permanece no store |
+| Eko Diagnostics | `components/Diagnostics` + `diagnostics/` | Painel dev-only (`Ctrl+Shift+D`); métricas de renderer e health |
+| Document Health | `core/document/DocumentHealth` | Auditoria read-only (`valid`, `errors`, `warnings`) |
+
+Regras de isolamento (auditadas):
+
+- `src/core/` **não** importa React, Konva ou adapters de plataforma
+- Renderer (`components/CanvasEditor`) conhece Konva
+- Providers/adapters conhecem I/O externo
+
+Pipeline oficial inalterado:
+
+```text
+EkoDocument → Layout Resolver → Renderer Adapter → Konva Canvas
+```
+
+---
+
+## Asset Library Experience (Editor UX)
+
+Conecta o Asset Engine à UX sem upload e sem estado paralelo de assets:
+
+```text
+AssetLibrary → InsertAsset → Create Element → History → EkoDocument → Renderer
+```
+
+| Peça | Local | Papel |
+|------|-------|--------|
+| Projeção da biblioteca | `core/assets/libraryAssets` | Lista insertável derivada de `document.assets` |
+| Factory | `core/assets/createElementFromAsset` | Asset payload → `EkoElement` (puro) |
+| Comando | `InsertAsset` | Mutation única via history; surface ativa |
+| UI | `editor/assets/*` | `AssetLibrary` / `AssetGrid` / `AssetCard` |
+
+Elementos de imagem referenciam o asset via `properties.assetId` (+ `src` de fallback). Placeholders de template viram `shape` com `metadata.role = template-placeholder`. Upload, DnD no canvas, busca, categorias e favoritos ficam preparados na UI, ainda não implementados.

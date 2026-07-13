@@ -26,6 +26,9 @@ export type EditorCommandType =
   | 'MoveToSurface'
   | 'GroupElements'
   | 'UngroupElements'
+  | 'AddPage'
+  | 'DuplicatePage'
+  | 'InsertAsset'
 
 export interface EditorCommandBase {
   type: EditorCommandType
@@ -177,6 +180,36 @@ export interface UngroupElementsCommand extends EditorCommandBase {
   groupId: string
 }
 
+export interface AddPageCommand extends EditorCommandBase {
+  type: 'AddPage'
+  name?: string
+}
+
+export interface DuplicatePageCommand extends EditorCommandBase {
+  type: 'DuplicatePage'
+  pageId: string
+}
+
+/**
+ * Insert an asset from the library as a new element (centered by default).
+ * Payload is self-contained so history does not depend on AssetRepository.
+ */
+export interface InsertAssetCommand extends EditorCommandBase {
+  type: 'InsertAsset'
+  assetId: string
+  libraryKind: 'image' | 'svg' | 'template'
+  sourceUri: string
+  name: string
+  mimeType?: string
+  /** Target surface (active page surface). */
+  surfaceId: string
+  /** Optional explicit placement; omitted → center of document canvas. */
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+}
+
 export type EditorCommand =
   | LoadDocumentCommand
   | SelectElementCommand
@@ -202,6 +235,9 @@ export type EditorCommand =
   | MoveToSurfaceCommand
   | GroupElementsCommand
   | UngroupElementsCommand
+  | AddPageCommand
+  | DuplicatePageCommand
+  | InsertAssetCommand
 
 export interface CommandResult {
   success: boolean

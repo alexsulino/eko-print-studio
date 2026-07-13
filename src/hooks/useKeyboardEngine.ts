@@ -32,6 +32,10 @@ export function useKeyboardEngine(enabled = true) {
           return
         case 'escape':
           event.preventDefault()
+          if (store.interaction.session.kind !== 'none') {
+            store.endInteractionSession()
+            return
+          }
           store.clearSelection()
           store.clearGuides()
           store.setInteraction({ marquee: null, mode: 'idle' })

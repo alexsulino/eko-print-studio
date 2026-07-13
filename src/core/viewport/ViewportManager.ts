@@ -45,13 +45,13 @@ export class ViewportManager {
   }
 
   zoomIn(step = 0.1): ViewportState {
-    this.zoomBy(step)
-    return this.getState()
+    const next = Math.min(4, Math.max(0.1, this.state.zoom + step))
+    return this.zoomAt(next, this.state.stageWidth / 2, this.state.stageHeight / 2)
   }
 
   zoomOut(step = 0.1): ViewportState {
-    this.zoomBy(-step)
-    return this.getState()
+    const next = Math.min(4, Math.max(0.1, this.state.zoom - step))
+    return this.zoomAt(next, this.state.stageWidth / 2, this.state.stageHeight / 2)
   }
 
   zoomTo100(canvas?: DocumentCanvas): ViewportState {

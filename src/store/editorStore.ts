@@ -15,15 +15,20 @@ import { SAMPLE_MASTER_ID } from '@/data/sampleDocuments'
 import { localDocumentProvider } from '@/providers/LocalDocumentProvider'
 import { exportDocument, importDocument } from '@/services/documentService'
 import { templateRulesEngine } from '@/core/rules/TemplateRulesEngine'
+import { reconcileActiveLayout } from '@/core/pages/pageMutations'
 import type { EkoDocument } from '@/types/document'
 import type { EkoElement, ElementTransform } from '@/types/element'
 import type { EditorCommand } from '@/types/history'
 import type { ViewportState } from '@/types/viewport'
 import {
   DEFAULT_INTERACTION_STATE,
+  IDLE_INTERACTION_SESSION,
   type InteractionState,
+  type InteractionSession,
   type SnapGuide,
 } from '@/types/interaction'
+import { recordPropertyUpdateMs } from '@/diagnostics/runtimeBenchmark'
+import { recordCommand, recordZustandUpdate } from '@/diagnostics/dragProfiler'
 
 registerBuiltins()
 
@@ -60,6 +65,20 @@ interface EditorStore {
   bootstrapSession: (masterId?: string) => Promise<void>
   dispatch: (command: EditorCommand) => boolean
   setActiveLayout: (pageId: string | null, surfaceId: string | null) => void
+  /** Switch active page — clears selection and fits viewport. */
+  activatePage: (pageId: string) => boolean
+  addPage: (name?: string) => boolean
+  duplicatePage: (pageId?: string) => boolean
+  /**
+   * Insert library asset onto the active surface via InsertAsset command.
+   */
+  insertAsset: (payload: {
+    assetId: string
+    libraryKind: 'image' | 'svg' | 'template'
+    sourceUri: string
+    name: string
+    mimeType?: string
+  }) => boolean
 
   selectElement: (elementId: string | null) => void
   selectElements: (elementIds: string[]) => void
@@ -100,6 +119,13 @@ interface EditorStore {
   setInteraction: (patch: Partial<InteractionState>) => void
   setGuides: (guides: SnapGuide[]) => void
   clearGuides: () => void
+  /** Start a modal interaction session (text edit, crop, …). */
+  beginInteractionSession: (
+    session: Omit<InteractionSession, 'kind'> & {
+      kind: Exclude<InteractionSession['kind'], 'none'>
+    },
+  ) => boolean
+  endInteractionSession: () => void
   snapMove: (
     elementId: string,
     x: number,
@@ -195,12 +221,81 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     eventBus.emit(documentEvents.LAYOUT_CHANGED, { pageId, surfaceId })
   },
 
+  activatePage: (pageId) => {
+    const doc = get().document
+    if (!doc) return false
+    const page = doc.pages?.find((p) => p.id === pageId)
+    if (!page) return false
+
+    const surfaceId =
+      page.surfaceIds?.[0] ??
+      doc.surfaces?.find((s) => s.pageId === pageId)?.id ??
+      null
+
+    set({
+      activePageId: pageId,
+      activeSurfaceId: surfaceId,
+      ...syncSelection([]),
+    })
+    eventBus.emit(documentEvents.LAYOUT_CHANGED, { pageId, surfaceId })
+    get().fitViewport()
+    return true
+  },
+
+  addPage: (name) => {
+    const ok = get().dispatch({ type: 'AddPage', name, timestamp: Date.now() })
+    if (!ok) return false
+    const pages = get().document?.pages ?? []
+    const created = pages[pages.length - 1]
+    if (created) get().activatePage(created.id)
+    return true
+  },
+
+  duplicatePage: (pageId) => {
+    const id = pageId ?? get().activePageId
+    if (!id) return false
+    const beforeCount = get().document?.pages?.length ?? 0
+    const ok = get().dispatch({ type: 'DuplicatePage', pageId: id, timestamp: Date.now() })
+    if (!ok) return false
+    const pages = get().document?.pages ?? []
+    if (pages.length > beforeCount) {
+      const created = pages[pages.length - 1]
+      if (created) get().activatePage(created.id)
+    }
+    return true
+  },
+
+  insertAsset: (payload) => {
+    const surfaceId = get().activeSurfaceId
+    if (!surfaceId) {
+      set({ lastError: 'No active surface' })
+      return false
+    }
+    return get().dispatch({
+      type: 'InsertAsset',
+      assetId: payload.assetId,
+      libraryKind: payload.libraryKind,
+      sourceUri: payload.sourceUri,
+      name: payload.name,
+      mimeType: payload.mimeType,
+      surfaceId,
+      timestamp: Date.now(),
+    })
+  },
+
   dispatch: (command) => {
+    recordCommand(command.type)
     const current = get().document
     if (!current && command.type !== 'LoadDocument') {
       set({ lastError: 'No active document' })
       return false
     }
+
+    const propertyStarted =
+      import.meta.env.DEV &&
+      (command.type === 'UpdateElementProperties' || command.type === 'UpdateProperty')
+        ? performance.now()
+        : null
 
     const before = current
     const result = applyCommand(current ?? (command as { document: EkoDocument }).document, command)
@@ -214,7 +309,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       historyEngine.push(command, before, result.document)
     }
 
-    const selectionPatch =
+    const selectionPatch: Partial<Pick<EditorStore, 'selectedIds' | 'selectedId'>> =
       result.selectedIds !== undefined
         ? syncSelection(result.selectedIds)
         : result.selectedId !== undefined
@@ -223,11 +318,20 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     const nextDoc = normalizeDocument(result.document)
 
+    recordZustandUpdate([
+      'document',
+      ...(selectionPatch.selectedIds !== undefined ? ['selectedIds', 'selectedId'] : []),
+    ])
+
     set({
       document: nextDoc,
       ...selectionPatch,
       lastError: null,
     })
+
+    if (propertyStarted !== null) {
+      recordPropertyUpdateMs(performance.now() - propertyStarted)
+    }
 
     if (command.type === 'SelectElement' || command.type === 'SelectElements') {
       eventBus.emit(documentEvents.ELEMENT_SELECTED, {
@@ -236,7 +340,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     } else if (command.type === 'DeleteElements') {
       eventBus.emit(documentEvents.ELEMENT_REMOVED, { elementIds: (command as { elementIds: string[] }).elementIds })
       eventBus.emit(documentEvents.DOCUMENT_CHANGED, { documentId: nextDoc.id })
-    } else if (command.type === 'AddElements' || command.type === 'DuplicateElements') {
+    } else if (
+      command.type === 'AddElements' ||
+      command.type === 'DuplicateElements' ||
+      command.type === 'InsertAsset'
+    ) {
       eventBus.emit(documentEvents.ELEMENT_CREATED, { selectedIds: get().selectedIds })
       eventBus.emit(documentEvents.DOCUMENT_CHANGED, { documentId: nextDoc.id })
     } else if (!NON_HISTORY.has(command.type)) {
@@ -371,10 +479,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const before = historyEngine.peekUndoBefore()
     if (!before) return false
     historyEngine.undo()
+    const doc = structuredClone(before)
+    const prevPageId = get().activePageId
+    const layout = reconcileActiveLayout(doc, get().activePageId, get().activeSurfaceId)
     set({
-      document: structuredClone(before),
+      document: doc,
+      ...layout,
+      ...(layout.activePageId !== prevPageId ? syncSelection([]) : {}),
       lastError: null,
     })
+    if (layout.activePageId !== prevPageId) get().fitViewport()
     return true
   },
 
@@ -382,10 +496,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const after = historyEngine.peekRedoAfter()
     if (!after) return false
     historyEngine.redo()
+    const doc = structuredClone(after)
+    const prevPageId = get().activePageId
+    const layout = reconcileActiveLayout(doc, get().activePageId, get().activeSurfaceId)
     set({
-      document: structuredClone(after),
+      document: doc,
+      ...layout,
+      ...(layout.activePageId !== prevPageId ? syncSelection([]) : {}),
       lastError: null,
     })
+    if (layout.activePageId !== prevPageId) get().fitViewport()
     return true
   },
 
@@ -430,15 +550,60 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   setInteraction: (patch) => {
+    recordZustandUpdate(['interaction', ...Object.keys(patch)])
     set({ interaction: { ...get().interaction, ...patch } })
   },
 
   setGuides: (guides) => {
+    recordZustandUpdate(['interaction', 'guides'])
     set({ interaction: { ...get().interaction, guides } })
   },
 
   clearGuides: () => {
+    recordZustandUpdate(['interaction', 'guides', 'mode'])
     set({ interaction: { ...get().interaction, guides: [], mode: 'idle' } })
+  },
+
+  beginInteractionSession: (session) => {
+    const doc = get().document
+    if (!doc || !session.elementId) return false
+    const el = doc.elements.find((item) => item.id === session.elementId)
+    if (!el) return false
+
+    if (session.kind === 'textEdit') {
+      if (el.type !== 'text') return false
+      const allowed = templateRulesEngine.can(el, 'changeText', doc).allowed
+      if (!allowed) {
+        set({ lastError: 'Text editing is not allowed for this element' })
+        return false
+      }
+    }
+
+    set({
+      ...syncSelection([session.elementId]),
+      interaction: {
+        ...get().interaction,
+        session: {
+          kind: session.kind,
+          elementId: session.elementId,
+          meta: session.meta,
+        },
+        mode: 'idle',
+        marquee: null,
+        guides: [],
+      },
+      lastError: null,
+    })
+    return true
+  },
+
+  endInteractionSession: () => {
+    set({
+      interaction: {
+        ...get().interaction,
+        session: { ...IDLE_INTERACTION_SESSION },
+      },
+    })
   },
 
   snapMove: (elementId, x, y) => {

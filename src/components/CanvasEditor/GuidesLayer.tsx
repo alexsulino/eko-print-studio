@@ -1,5 +1,6 @@
 import { Line, Rect } from 'react-konva'
 import type { MarqueeRect, SnapGuide } from '@/types/interaction'
+import { recordReactRender } from '@/diagnostics/dragProfiler'
 
 interface GuidesLayerProps {
   guides: SnapGuide[]
@@ -10,6 +11,7 @@ interface GuidesLayerProps {
 
 /** Transient alignment guides + marquee — never part of EkoDocument. */
 export function GuidesLayer({ guides, marquee, documentWidth, documentHeight }: GuidesLayerProps) {
+  recordReactRender('GuidesLayer')
   return (
     <>
       {guides.map((guide, index) =>
