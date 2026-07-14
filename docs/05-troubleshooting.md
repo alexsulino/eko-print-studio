@@ -230,7 +230,7 @@ Console: `DocumentProvider required for personalization sessions` ou falha ao `o
 
 1. Confirme boot do app commerce (`bootWooCommerceFromUrl`)
 2. Verifique `sessionId` no reopen admin
-3. Template ID bate com o master disponível no DocumentProvider
+3. Template Master selecionado bate com um id publicado no Template Registry / DocumentProvider
 
 ### Resolver
 
@@ -417,7 +417,7 @@ Meta do produto `_eko_template_id` preenchida?
 
 ### Resolver
 
-1. Preencha **Eko Template ID**
+1. Selecione um **Template Master** no produto
 2. Publique o produto
 3. Limpe cache
 4. Teste shortcode `[eko_personalize product_id="ID"]`

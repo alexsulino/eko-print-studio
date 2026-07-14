@@ -1,60 +1,33 @@
 import type { PersonalizationSessionRecord } from '@/types/commerce'
 import type { PersonalizationSessionStore } from '@/sdk/commerce/PersonalizationSessionManager'
+import { LocalPersistenceProvider } from '@/providers/LocalPersistenceProvider'
 
 /**
- * Local session record store — commerce session metadata only (not EkoDocument internals).
+ * @deprecated Use `LocalPersistenceProvider` (SessionPersistenceProvider) instead.
+ * Kept as a thin façade for older call sites / migration.
  */
 export class LocalPersonalizationSessionStore implements PersonalizationSessionStore {
-  private readonly storageKey: string
-  private memory = new Map<string, PersonalizationSessionRecord>()
+  private readonly persistence: LocalPersistenceProvider
 
   constructor(storageKey = 'eko-print-studio-commerce-sessions') {
-    this.storageKey = storageKey
-    this.hydrate()
+    // Dedicated key so legacy session-only data stays isolated if still present.
+    this.persistence = new LocalPersistenceProvider(`${storageKey}__via-local-persistence`)
   }
 
-  private hydrate(): void {
-    try {
-      if (typeof localStorage === 'undefined') return
-      const raw = localStorage.getItem(this.storageKey)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as PersonalizationSessionRecord[]
-      for (const record of parsed) this.memory.set(record.id, record)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  private flush(): void {
-    try {
-      if (typeof localStorage === 'undefined') return
-      localStorage.setItem(this.storageKey, JSON.stringify([...this.memory.values()]))
-    } catch {
-      /* ignore */
-    }
-  }
-
-  async save(record: PersonalizationSessionRecord): Promise<PersonalizationSessionRecord> {
-    const clone = structuredClone(record)
-    this.memory.set(clone.id, clone)
-    this.flush()
-    return structuredClone(clone)
+  save(record: PersonalizationSessionRecord): Promise<PersonalizationSessionRecord> {
+    return this.persistence.saveSession(record)
   }
 
   async load(sessionId: string): Promise<PersonalizationSessionRecord | null> {
-    const hit = this.memory.get(sessionId)
-    return hit ? structuredClone(hit) : null
+    const hit = await this.persistence.loadSession(sessionId)
+    return hit?.record ?? null
   }
 
-  async remove(sessionId: string): Promise<void> {
-    this.memory.delete(sessionId)
-    this.flush()
+  remove(sessionId: string): Promise<void> {
+    return this.persistence.removeSession(sessionId)
   }
 
-  async list(productId?: string): Promise<PersonalizationSessionRecord[]> {
-    const all = [...this.memory.values()]
-    return structuredClone(
-      productId ? all.filter((r) => r.product.productId === productId) : all,
-    )
+  list(productId?: string): Promise<PersonalizationSessionRecord[]> {
+    return this.persistence.listSessions(productId)
   }
 }

@@ -80,6 +80,8 @@ Define a arte mestre do produto: layout, elementos por categoria, constraints, f
 
 O master **nunca é editado pelo cliente**.
 
+Catálogo oficial: `src/core/templates/` (`TemplateRegistry`). Hosts (ex. WooCommerce) consomem `public/templates/catalog.json` — selecionam por **nome**; persistem só o `id` interno.
+
 ---
 
 ## Session Design
@@ -147,7 +149,95 @@ Contrato `DocumentProvider` em `src/types/provider.ts`:
 
 Implementação Foundation: `LocalDocumentProvider` (memória + `localStorage`, chave `eko-print-studio-documents`).
 
-Integrações externas utilizam Providers. O núcleo permanece independente de qualquer plataforma.
+### Platform providers (homogêneos)
+
+Quatro contratos oficiais do SDK:
+
+```text
+Template Registry    PersistenceProvider    ExportProvider    CommerceProvider
+(list masters)       (sessions + docs)      (session preview) (storefront)
+```
+
+#### Persistence
+
+```text
+SessionPersistenceProvider
+        │
+┌───────┴────────────────┬──────────────────────────┐
+LocalPersistenceProvider   WooCommercePersistenceProvider   FutureCloud…
+        └──────── CompositePersistenceProvider ────────┘
+```
+
+#### Export
+
+```text
+ExportProvider
+        │
+┌───────┴──────────┬─────────────────┬──────────────────┐
+DomainExportProvider RasterExportProvider FuturePdf…   FuturePrint…
+(JSON)               (preview.png)
+        └──────── CompositeExportProvider ────────┘
+              commerce: raster preferred + domainData
+```
+
+#### Commerce
+
+```text
+CommerceProvider
+        │
+┌───────┴────────────┬─────────────┬──────────────┐
+WooCommerceCommerceProvider  Shopify…  Magento…  Nuvemshop…
+```
+
+O **SDK e o App** conhecem só `CommerceProvider` (`bootCommerceFromUrl` / `configureCommerce`). WooCommerce é **uma implementação** em `src/adapters/woocommerce/` — o plugin PHP permanece host.
+
+Fluxo save/finalize:
+
+```text
+CommerceProvider.finalize()
+  → SessionManager + ExportProvider.createSessionPreview
+  → PersistenceProvider.saveSession
+  → host postMessage (aliases específicos do provider)
+```
+
+Troca: `configurePersistence` / `configureExport` / `configureCommerce`. Standalone: Local + Domain. Commerce: provider da loja + persistence + export.
+
+### Customization (entidade de negócio)
+
+A sessão de edição persiste como `PersonalizationSessionRecord`, mas o **negócio** expõe a entidade **Customization** (`eko.customization/1`):
+
+```text
+templateId + session + preview oficial + revisions[] + lifecycle
+```
+
+Em v1: `customizationId === sessionId` (migração transparente de registros que só tinham `sessionId`).
+
+```mermaid
+stateDiagram-v2
+  [*] --> created
+  created --> editing
+  editing --> saved
+  saved --> editing
+  saved --> finalized
+  editing --> finalized
+  finalized --> editing
+  finalized --> cart_attached
+  cart_attached --> editing
+  cart_attached --> ordered
+  ordered --> editing
+  created --> cancelled
+  editing --> cancelled
+  saved --> cancelled
+  finalized --> cancelled
+  cart_attached --> cancelled
+  cancelled --> [*]
+```
+
+| Camada | Responsabilidade |
+|--------|------------------|
+| SDK | `lifecycle`, `customizationId`, `revisions` — sem Woo |
+| Woo | Referencia ids + meta (`_eko_customization_id`, `_eko_customization_lifecycle`) |
+| Futuro | Múltiplas revisões / colaboração sem mudar contratos cart/order |
 
 ---
 
@@ -159,7 +249,7 @@ src/
   core/          document, rules, registry, viewport, render, platform, host, plugins, …
   adapters/      backends de paint / host (KonvaAdapter; futuros Pixi / WebGL)
   sdk/           fachada pública EkoPrintStudio
-  providers/     I/O (LocalDocumentProvider; futuros adapters de loja)
+  providers/     I/O (LocalDocumentProvider, LocalPersistenceProvider, Composite…)
   store/         estado da sessão de edição (Zustand)
   services/      fachadas finas sobre core/providers
   components/    UI — Toolbar, Canvas (projeção Konva), PropertiesPanel

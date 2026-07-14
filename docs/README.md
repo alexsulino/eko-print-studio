@@ -34,9 +34,10 @@ Se você nunca viu o projeto, comece por [01 — Introdução](./01-introduction
 - [Getting Started](./sdk/getting-started.md)
 - [Public API](./sdk/public-api.md)
 
-### Adapters
+### Adapters / CommerceProvider
 
-- [WooCommerce Adapter](./adapters/woocommerce.md)
+- [WooCommerce (`WooCommerceCommerceProvider`)](./adapters/woocommerce.md)
+- Stubs preparados: Shopify · Magento · Nuvemshop (`src/providers/commerce/stubs/`)
 
 ### Exemplos ponta a ponta
 

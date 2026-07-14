@@ -4,9 +4,10 @@ declare(strict_types=1);
 namespace EkoPrintStudio\Admin;
 
 use EkoPrintStudio\Config\Settings;
+use EkoPrintStudio\Config\TemplateCatalog;
 
 /**
- * Product → Template association (single / variation-ready).
+ * Product → Template Master association via catalog select (IDs stay internal).
  */
 final class ProductFields {
 	public function register(): void {
@@ -17,22 +18,29 @@ final class ProductFields {
 	}
 
 	public function fields(): void {
+		global $post;
+		$product_id = (int) ($post->ID ?? 0);
+		$current = (string) get_post_meta($product_id, Settings::META_TEMPLATE_ID, true);
+		$options = TemplateCatalog::with_current_value(TemplateCatalog::select_options(), $current);
+
 		echo '<div class="options_group">';
-		woocommerce_wp_text_input([
+		woocommerce_wp_select([
 			'id'          => Settings::META_TEMPLATE_ID,
-			'label'       => __('Eko Template ID', 'eko-print-studio'),
+			'label'       => __('Template Master', 'eko-print-studio'),
+			'options'     => $options,
+			'value'       => $current,
 			'desc_tip'    => true,
-			'description' => __('Master template id from Eko Print Studio (DocumentProvider).', 'eko-print-studio'),
+			'description' => __('Selecione o Template Master do Eko Print Studio. O ID interno é gravado automaticamente.', 'eko-print-studio'),
 		]);
 		woocommerce_wp_select([
 			'id'      => Settings::META_TEMPLATE_MODE,
 			'label'   => __('Template mode', 'eko-print-studio'),
 			'options' => [
-				'single'    => __('Unique template', 'eko-print-studio'),
-				'variation' => __('Per variation (prepared)', 'eko-print-studio'),
-				'dynamic'   => __('Dynamic (prepared)', 'eko-print-studio'),
-				'category'  => __('Category (prepared)', 'eko-print-studio'),
-				'collection'=> __('Collection (prepared)', 'eko-print-studio'),
+				'single'     => __('Unique template', 'eko-print-studio'),
+				'variation'  => __('Per variation (prepared)', 'eko-print-studio'),
+				'dynamic'    => __('Dynamic (prepared)', 'eko-print-studio'),
+				'category'   => __('Category (prepared)', 'eko-print-studio'),
+				'collection' => __('Collection (prepared)', 'eko-print-studio'),
 			],
 		]);
 		echo '</div>';
@@ -40,11 +48,12 @@ final class ProductFields {
 
 	public function save(int $post_id): void {
 		if (isset($_POST[Settings::META_TEMPLATE_ID])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			update_post_meta(
-				$post_id,
-				Settings::META_TEMPLATE_ID,
-				sanitize_text_field(wp_unslash((string) $_POST[Settings::META_TEMPLATE_ID])) // phpcs:ignore
-			);
+			$value = sanitize_text_field(wp_unslash((string) $_POST[Settings::META_TEMPLATE_ID])); // phpcs:ignore
+			if ($value === '') {
+				delete_post_meta($post_id, Settings::META_TEMPLATE_ID);
+			} else {
+				update_post_meta($post_id, Settings::META_TEMPLATE_ID, $value);
+			}
 		}
 		if (isset($_POST[Settings::META_TEMPLATE_MODE])) { // phpcs:ignore
 			update_post_meta(
@@ -62,11 +71,15 @@ final class ProductFields {
 	public function variation_fields(int $loop, array $variation_data, $variation): void {
 		unset($variation_data);
 		$variation_id = (int) $variation->ID;
-		woocommerce_wp_text_input([
+		$current = (string) get_post_meta($variation_id, Settings::META_TEMPLATE_ID, true);
+		$options = TemplateCatalog::with_current_value(TemplateCatalog::select_options(), $current);
+
+		woocommerce_wp_select([
 			'id'            => Settings::META_TEMPLATE_ID . "_{$loop}",
 			'name'          => Settings::META_TEMPLATE_ID . "[{$loop}]",
-			'value'         => (string) get_post_meta($variation_id, Settings::META_TEMPLATE_ID, true),
-			'label'         => __('Eko Template ID', 'eko-print-studio'),
+			'value'         => $current,
+			'label'         => __('Template Master', 'eko-print-studio'),
+			'options'       => $options,
 			'wrapper_class' => 'form-row form-row-full',
 		]);
 	}
@@ -75,10 +88,11 @@ final class ProductFields {
 		if (!isset($_POST[Settings::META_TEMPLATE_ID][$loop])) { // phpcs:ignore
 			return;
 		}
-		update_post_meta(
-			$variation_id,
-			Settings::META_TEMPLATE_ID,
-			sanitize_text_field(wp_unslash((string) $_POST[Settings::META_TEMPLATE_ID][$loop])) // phpcs:ignore
-		);
+		$value = sanitize_text_field(wp_unslash((string) $_POST[Settings::META_TEMPLATE_ID][$loop])); // phpcs:ignore
+		if ($value === '') {
+			delete_post_meta($variation_id, Settings::META_TEMPLATE_ID);
+		} else {
+			update_post_meta($variation_id, Settings::META_TEMPLATE_ID, $value);
+		}
 	}
 }

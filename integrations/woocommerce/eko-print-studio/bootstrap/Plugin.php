@@ -13,6 +13,7 @@ use EkoPrintStudio\Rest\Routes;
 use EkoPrintStudio\Services\AuditLog;
 use EkoPrintStudio\Services\CartPersistence;
 use EkoPrintStudio\Services\OrderPersistence;
+use EkoPrintStudio\Services\SessionRepository;
 
 /**
  * Wires WooCommerce hooks — thin orchestration only.
@@ -27,6 +28,7 @@ final class Plugin {
 	public function boot(): void {
 		Settings::init();
 		AuditLog::init();
+		add_action('init', [SessionRepository::class, 'register_post_type']);
 
 		(new Routes())->register();
 		(new CartPersistence())->register();

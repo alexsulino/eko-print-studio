@@ -11,9 +11,29 @@ export type {
   PersonalizationSessionManagerOptions,
   PersonalizationSessionStore,
 } from './commerce/PersonalizationSessionManager'
+export {
+  applyLifecycle,
+  toCustomizationView,
+  touchCurrentRevision,
+  resolveCustomizationId,
+} from './commerce/CustomizationLifecycle'
 export { buildProductionPreview, buildRasterPreview } from './preview/ProductionPreview'
 export { bindPostMessageTransport, postToEditor } from './host/PostMessageBridge'
 export type { PostMessageBridgeOptions } from './host/PostMessageBridge'
+export {
+  bootCommerceFromUrl,
+  createCommerceProvider,
+  commerceMessages,
+  isCommerceProvider,
+} from '@/providers/commerce'
+export type {
+  CommerceProvider,
+  CommerceBootContext,
+  CommerceStartOptions,
+  CommercePlatformId,
+  CommerceHostBootOptions,
+  CommerceHostBootResult,
+} from '@/providers/commerce'
 
 export type {
   CommerceCartPayload,
@@ -25,4 +45,14 @@ export type {
   PersonalizationSessionStatus,
   ProductionPreviewRef,
   CommerceSessionSnapshot,
+  CustomizationLifecycleStatus,
+  CustomizationRecord,
+  CustomizationRevision,
 } from '@/types/commerce'
+export {
+  CUSTOMIZATION_SCHEMA,
+  CUSTOMIZATION_TRANSITIONS,
+  canTransitionCustomization,
+  ensureCustomizationFields,
+  migrateSessionToCustomization,
+} from '@/types/customization'

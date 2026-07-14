@@ -21,7 +21,13 @@ import { PluginRegistry } from '@/core/plugins/PluginRegistry'
 import type { EditorPlugin } from '@/core/plugins/PluginRegistry'
 import { createHostBridge } from '@/core/host/HostBridge'
 import type { HostBridge } from '@/core/host/HostBridge'
-import type { PlatformProviders } from '@/core/platform/providers'
+import type {
+  CommerceProvider,
+  ExportProvider,
+  PlatformProviders,
+  SessionPersistenceProvider,
+} from '@/core/platform/providers'
+import { isCommerceProvider, isExportProvider } from '@/core/platform/providers'
 import type { DocumentProvider } from '@/types/provider'
 import { exportDocument as serializeExport, importDocument } from '@/core/document/serializeDocument'
 import { editorSession, type EditorSessionApi } from '@/sdk/session/EditorSession'
@@ -35,6 +41,7 @@ export interface EkoPrintStudioOptions {
   documentProvider?: DocumentProvider
   providers?: PlatformProviders
   host?: HostBridge
+  /** @deprecated Prefer `providers.persistence` as SessionPersistenceProvider. */
   sessionStore?: PersonalizationSessionStore
 }
 
@@ -46,17 +53,16 @@ export type EditorRegisterTarget =
   | { kind: 'pass'; pass: RenderPass }
 
 /**
- * Public SDK façade — embeddable hosts and storefront adapters.
- *
- * Commerce adapters (WooCommerce, Shopify, …) consume only this class + public types.
+ * Public SDK façade — embeddable hosts and CommerceProvider implementations.
+ * The SDK never imports a concrete storefront (Woo / Shopify / …).
  */
 export class EkoPrintStudio {
   private document: EkoDocument | null = null
-  private readonly providers: PlatformProviders
+  private providers: PlatformProviders
   private readonly documentProvider?: DocumentProvider
   private readonly host: HostBridge
   private readonly plugins: PluginRegistry
-  private commerce: PersonalizationSessionManager | null = null
+  private sessionManager: PersonalizationSessionManager | null = null
   private readonly sessionStore?: PersonalizationSessionStore
   private destroyed = false
 
@@ -71,19 +77,69 @@ export class EkoPrintStudio {
       registerOverlay: (contributor) => overlaySystem.register(contributor),
       registerPass: (pass) => renderPipeline.registerPass(pass),
     })
+    if (options.providers?.commerce && isCommerceProvider(options.providers.commerce)) {
+      this.providers = { ...this.providers, commerce: options.providers.commerce }
+    }
+  }
+
+  /**
+   * Swap persistence (e.g. commerce boot → remote + Local composite).
+   * Resets the session manager so the next personalization uses the new provider.
+   */
+  configurePersistence(persistence: SessionPersistenceProvider | PlatformProviders['persistence']): void {
+    this.assertAlive()
+    this.providers = { ...this.providers, persistence }
+    this.resetSessionManager()
+  }
+
+  /**
+   * Swap export stack (e.g. commerce → Domain + Raster composite).
+   * Resets the session manager so save/finalize use the new preview pipeline.
+   */
+  configureExport(exporter: ExportProvider): void {
+    this.assertAlive()
+    if (!isExportProvider(exporter)) {
+      throw new Error('EkoPrintStudio.configureExport: invalid ExportProvider')
+    }
+    this.providers = { ...this.providers, export: exporter }
+    this.resetSessionManager()
+  }
+
+  /**
+   * Attach the active CommerceProvider (WooCommerce / Shopify / … implementation).
+   * App and hosts orchestrate through this — never through a concrete store class.
+   */
+  configureCommerce(commerce: CommerceProvider): void {
+    this.assertAlive()
+    if (!isCommerceProvider(commerce)) {
+      throw new Error('EkoPrintStudio.configureCommerce: invalid CommerceProvider')
+    }
+    this.providers = { ...this.providers, commerce }
+  }
+
+  getCommerce(): CommerceProvider | null {
+    return this.providers.commerce ?? null
+  }
+
+  private resetSessionManager(): void {
+    if (this.sessionManager) {
+      this.sessionManager.destroy()
+      this.sessionManager = null
+    }
   }
 
   private ensureCommerce(): PersonalizationSessionManager {
-    if (this.commerce) return this.commerce
+    if (this.sessionManager) return this.sessionManager
     if (!this.documentProvider) {
       throw new Error('EkoPrintStudio: DocumentProvider required for personalization sessions')
     }
-    this.commerce = new PersonalizationSessionManager({
+    this.sessionManager = new PersonalizationSessionManager({
       documentProvider: this.documentProvider,
       persistence: this.providers.persistence,
+      export: isExportProvider(this.providers.export) ? this.providers.export : undefined,
       sessionStore: this.sessionStore,
     })
-    return this.commerce
+    return this.sessionManager
   }
 
   async load(id: string): Promise<EkoDocument> {
@@ -128,8 +184,9 @@ export class EkoPrintStudio {
     this.assertAlive()
     const current = this.getDocument()
     if (!current) throw new Error('EkoPrintStudio.export: no document open')
-    if (this.providers.export) {
-      return this.providers.export.exportDocument(current, { format })
+    if (isExportProvider(this.providers.export)) {
+      const result = await this.providers.export.exportDocument(current, { format })
+      return { mimeType: result.mimeType, data: result.data }
     }
     if (format !== 'json') {
       throw new Error(`EkoPrintStudio.export: format "${format}" requires ExportProvider`)
@@ -233,7 +290,7 @@ export class EkoPrintStudio {
   }
 
   getPersonalizationSession(): PersonalizationSessionRecord | null {
-    return this.commerce?.getRecord() ?? null
+    return this.sessionManager?.getRecord() ?? null
   }
 
   async generateProductionPreview(): Promise<ProductionPreviewRef> {
@@ -283,8 +340,10 @@ export class EkoPrintStudio {
   destroy(): void {
     if (this.destroyed) return
     this.destroyed = true
-    this.commerce?.destroy()
-    this.commerce = null
+    this.sessionManager?.destroy()
+    this.sessionManager = null
+    // Do not destroy CommerceProvider here — host owns its lifecycle / may share editor.
+    this.providers = { ...this.providers, commerce: undefined }
     for (const plugin of this.plugins.list()) {
       this.plugins.unregister(plugin.id)
     }

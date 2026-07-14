@@ -138,7 +138,7 @@ Em **WooCommerce → Eko Print Studio**:
 | Target Origin | `https://editor.seusite.com` (não use `*` em produção) |
 | Debug | desligado (a menos que esteja investigando) |
 
-Salve e teste um produto com Template ID.
+Salve e teste um produto com **Template Master** selecionado.
 
 **Resultado esperado:** Personalizar abre o editor HTTPS; Save adiciona ao carrinho.
 

@@ -91,7 +91,7 @@ Produto Woo → WooCommerceAdapter.openEditor
 
 **v0.8.1 (Unreleased):** plugin WordPress instalável em `integrations/woocommerce/eko-print-studio/`.
 
-Lojista: ativa plugin → configura URL do editor → associa Template ID ao produto → vende.
+Lojista: ativa plugin → configura URL do editor → seleciona Template Master no produto → vende.
 
 Cliente: Personalizar → editor (SDK) → Save/finalize → carrinho → pedido → admin reabre sessão.
 

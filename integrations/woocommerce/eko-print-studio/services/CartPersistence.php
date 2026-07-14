@@ -6,7 +6,8 @@ namespace EkoPrintStudio\Services;
 use EkoPrintStudio\Config\Settings;
 
 /**
- * Persists CommerceCartPayload on cart items — no editor logic.
+ * Persists CommerceCartPayload on cart items — no editor / export logic.
+ * Renders official ExportProvider preview when fidelity is raster.
  */
 final class CartPersistence {
 	public function register(): void {
@@ -14,6 +15,7 @@ final class CartPersistence {
 		add_filter('woocommerce_get_cart_item_from_session', [$this, 'from_session'], 10, 2);
 		add_filter('woocommerce_get_item_data', [$this, 'display_item_data'], 10, 2);
 		add_filter('woocommerce_cart_item_thumbnail', [$this, 'cart_thumbnail'], 10, 3);
+		add_filter('woocommerce_cart_item_name', [$this, 'cart_item_name'], 10, 3);
 		add_action('woocommerce_before_calculate_totals', [$this, 'maybe_block_without_custom'], 20);
 	}
 
@@ -70,19 +72,27 @@ final class CartPersistence {
 		$payload = $cart_item[Settings::CART_KEY];
 		$item_data[] = [
 			'key'   => __('Personalização', 'eko-print-studio'),
-			'value' => sprintf(
-				/* translators: %s session id */
-				__('Salva · sessão %s', 'eko-print-studio'),
-				esc_html(substr((string) ($payload['sessionId'] ?? ''), 0, 12))
-			),
+			'value' => esc_html__('Personalizado', 'eko-print-studio'),
 		];
-		if (!empty($payload['summary']['documentName'])) {
-			$item_data[] = [
-				'key'   => __('Arte', 'eko-print-studio'),
-				'value' => esc_html((string) $payload['summary']['documentName']),
-			];
-		}
+		$item_data[] = [
+			'key'   => __('Arte', 'eko-print-studio'),
+			'value' => esc_html(PreviewPresenter::document_name($payload)),
+		];
 		return $item_data;
+	}
+
+	/**
+	 * @param string $name
+	 * @param array<string,mixed> $cart_item
+	 */
+	public function cart_item_name(string $name, array $cart_item, string $cart_item_key): string {
+		unset($cart_item_key);
+		if (empty($cart_item[Settings::CART_KEY]) || !is_array($cart_item[Settings::CART_KEY])) {
+			return $name;
+		}
+		$art = PreviewPresenter::document_name($cart_item[Settings::CART_KEY]);
+		$badge = '<span class="eko-ps-cart-preview-badge">' . esc_html__('Personalizado', 'eko-print-studio') . '</span>';
+		return $name . ' <span class="eko-ps-cart-art-name">(' . esc_html($art) . ')</span> ' . $badge;
 	}
 
 	/**
@@ -91,19 +101,15 @@ final class CartPersistence {
 	 */
 	public function cart_thumbnail(string $thumbnail, array $cart_item, string $cart_item_key): string {
 		unset($cart_item_key);
-		if (empty($cart_item[Settings::CART_KEY]['preview']['data'])) {
+		if (empty($cart_item[Settings::CART_KEY]['preview']) || !is_array($cart_item[Settings::CART_KEY]['preview'])) {
 			return $thumbnail;
 		}
 		$preview = $cart_item[Settings::CART_KEY]['preview'];
-		$mime = (string) ($preview['mimeType'] ?? '');
-		$data = (string) $preview['data'];
-		if (str_starts_with($data, 'data:image') || str_contains($mime, 'image')) {
-			return sprintf(
-				'<img src="%s" alt="%s" style="max-width:64px;height:auto;border-radius:4px;" />',
-				esc_url($data),
-				esc_attr__('Preview personalizado', 'eko-print-studio')
-			);
+		if (PreviewPresenter::is_raster($preview)) {
+			$img = PreviewPresenter::img_html($preview, 'eko-ps-cart-thumb', 72);
+			return $img !== '' ? $img : $thumbnail;
 		}
+		// Legacy domain-only preview — badge, never invent a placeholder image.
 		return $thumbnail . '<span class="eko-ps-cart-preview-badge">' . esc_html__('Personalizado', 'eko-print-studio') . '</span>';
 	}
 

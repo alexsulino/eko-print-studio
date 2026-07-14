@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace EkoPrintStudio\Bootstrap;
 
 use EkoPrintStudio\Config\Settings;
+use EkoPrintStudio\Services\SessionRepository;
 
 final class Activator {
 	public static function activate(): void {
@@ -11,6 +12,8 @@ final class Activator {
 		if (get_option(Settings::OPTION_KEY, null) === null) {
 			add_option(Settings::OPTION_KEY, $defaults, '', false);
 		}
+
+		SessionRepository::register_post_type();
 
 		if (!wp_next_scheduled('eko_ps_cleanup_transients')) {
 			wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'eko_ps_cleanup_transients');

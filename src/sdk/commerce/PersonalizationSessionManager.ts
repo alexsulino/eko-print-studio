@@ -8,21 +8,31 @@ import type {
   ProductionPreviewRef,
 } from '@/types/commerce'
 import type { DocumentProvider } from '@/types/provider'
-import type { PersistenceProvider } from '@/core/platform/providers'
+import type {
+  ExportProvider,
+  PersistenceProvider,
+  SessionPersistenceProvider,
+} from '@/core/platform/providers'
+import { isSessionPersistenceProvider } from '@/core/platform/providers'
 import { eventBus, platformEvents } from '@/core/events/EventBus'
 import { exportDocument } from '@/core/document/serializeDocument'
 import { useEditorStore } from '@/store/editorStore'
 import { historyEngine } from '@/core/history/HistoryEngine'
 import { createId } from '@/utils/id'
-import { buildProductionPreview } from '@/sdk/preview/ProductionPreview'
+import { BridgedSessionPersistenceProvider } from '@/providers/BridgedSessionPersistenceProvider'
+import { InMemorySessionPersistenceProvider } from '@/providers/InMemorySessionPersistenceProvider'
+import { DomainExportProvider } from '@/providers/export/DomainExportProvider'
+import {
+  applyLifecycle,
+  toCustomizationView,
+  touchCurrentRevision,
+} from '@/sdk/commerce/CustomizationLifecycle'
+import { ensureCustomizationFields } from '@/types/customization'
 
-export interface PersonalizationSessionManagerOptions {
-  documentProvider: DocumentProvider
-  persistence?: PersistenceProvider
-  /** Optional session record store (local/remote). */
-  sessionStore?: PersonalizationSessionStore
-}
-
+/**
+ * @deprecated Prefer SessionPersistenceProvider.saveSession / loadSession.
+ * Kept for tests and gradual migration via BridgedSessionPersistenceProvider.
+ */
 export interface PersonalizationSessionStore {
   save(record: PersonalizationSessionRecord): Promise<PersonalizationSessionRecord>
   load(sessionId: string): Promise<PersonalizationSessionRecord | null>
@@ -30,37 +40,65 @@ export interface PersonalizationSessionStore {
   list?(productId?: string): Promise<PersonalizationSessionRecord[]>
 }
 
+export interface PersonalizationSessionManagerOptions {
+  documentProvider: DocumentProvider
+  /**
+   * Preferred: SessionPersistenceProvider (Local / Woo / Composite / Cloud).
+   * Document-only PersistenceProvider is accepted when `sessionStore` is also provided.
+   */
+  persistence?: PersistenceProvider | SessionPersistenceProvider
+  /** Session preview generation — Domain / Raster / Composite. Defaults to Domain. */
+  export?: ExportProvider
+  /** @deprecated Use a SessionPersistenceProvider instead. */
+  sessionStore?: PersonalizationSessionStore
+}
+
 /**
- * Personalization session lifecycle — SDK-facing commerce engine.
- * Uses DocumentProvider / PersistenceProvider; never WooCommerce APIs.
+ * Personalization / Customization lifecycle — SDK-facing commerce engine.
+ * Speaks only DocumentProvider + SessionPersistenceProvider + ExportProvider —
+ * never concrete Local/Woo/Raster classes.
+ *
+ * Business entity: Customization (`customizationId`, `lifecycle`).
+ * `sessionId` remains the persistence key and equals customizationId in v1.
  */
 export class PersonalizationSessionManager {
   private record: PersonalizationSessionRecord | null = null
   private autosaveTimer: ReturnType<typeof setInterval> | null = null
   private readonly documentProvider: DocumentProvider
-  private readonly persistence?: PersistenceProvider
-  private readonly sessionStore: PersonalizationSessionStore
+  private readonly persistence: SessionPersistenceProvider
+  private readonly exporter: ExportProvider
 
   constructor(options: PersonalizationSessionManagerOptions) {
     this.documentProvider = options.documentProvider
-    this.persistence = options.persistence
-    this.sessionStore = options.sessionStore ?? new InMemorySessionStore()
+    this.persistence = resolveSessionPersistence(options)
+    this.exporter = options.export ?? new DomainExportProvider()
   }
 
   getRecord(): PersonalizationSessionRecord | null {
     return this.record ? structuredClone(this.record) : null
   }
 
-  /** Start a new session from a product-linked template master. */
-  async start(product: CommerceProductContext, embedMode: PersonalizationSessionRecord['embedMode'] = 'page'): Promise<PersonalizationSessionRecord> {
+  /** Business view of the active customization (session migrated if needed). */
+  getCustomization() {
+    return this.record ? toCustomizationView(this.record) : null
+  }
+
+  /** Start a new session / customization from a product-linked template master. */
+  async start(
+    product: CommerceProductContext,
+    embedMode: PersonalizationSessionRecord['embedMode'] = 'page',
+  ): Promise<PersonalizationSessionRecord> {
     this.clearAutosave()
     const now = new Date().toISOString()
     const document = await this.documentProvider.createSession(product.templateId)
     this.hydrateEditor(document)
 
-    this.record = {
-      id: createId('psess'),
-      status: 'active',
+    const id = createId('psess')
+    let record: PersonalizationSessionRecord = ensureCustomizationFields({
+      id,
+      customizationId: id,
+      status: 'starting',
+      lifecycle: 'created',
       product: { ...product, quantity: product.quantity ?? 1 },
       documentId: document.id,
       masterId: product.templateId,
@@ -68,34 +106,52 @@ export class PersonalizationSessionManager {
       updatedAt: now,
       schemaVersion: document.schemaVersion,
       embedMode,
-    }
-    await this.sessionStore.save(this.record)
-    await this.persistDocument(document)
-    eventBus.emit(platformEvents.SessionStarted, { sessionId: this.record.id, documentId: document.id })
+      revisions: [],
+    })
+    record = applyLifecycle(record, 'editing', now)
+    record = touchCurrentRevision(record, 'initial')
+
+    // Persist session + document through the provider (server may echo a stable id).
+    record = await this.persistence.saveSession(record, document)
+    this.record = ensureCustomizationFields(record)
+    eventBus.emit(platformEvents.SessionStarted, {
+      sessionId: this.record.id,
+      customizationId: this.record.customizationId,
+      documentId: this.record.documentId,
+      lifecycle: this.record.lifecycle,
+    })
     return structuredClone(this.record)
   }
 
-  /** Resume an existing personalization session. */
+  /**
+   * Resume an existing customization / session.
+   * Accepts either customizationId or sessionId (same value when migrated).
+   */
   async resume(sessionId: string): Promise<PersonalizationSessionRecord> {
     this.clearAutosave()
-    const existing = await this.sessionStore.load(sessionId)
-    if (!existing) throw new Error(`Personalization session not found: ${sessionId}`)
-    if (existing.status === 'cancelled') {
+    const persisted = await this.persistence.loadSession(sessionId)
+    if (!persisted?.record) throw new Error(`Personalization session not found: ${sessionId}`)
+    const existing = ensureCustomizationFields(persisted.record)
+    if (existing.status === 'cancelled' || existing.lifecycle === 'cancelled') {
       throw new Error(`Cannot resume cancelled session: ${sessionId}`)
     }
 
     const document =
-      (await this.persistence?.load(existing.documentId).catch(() => null)) ??
+      persisted.document ??
+      (await this.persistence.load(existing.documentId).catch(() => null)) ??
       (await this.documentProvider.getDocument(existing.documentId))
 
     this.hydrateEditor(document)
-    this.record = {
-      ...existing,
-      status: 'active',
-      updatedAt: new Date().toISOString(),
-    }
-    await this.sessionStore.save(this.record)
-    eventBus.emit(platformEvents.SessionResumed, { sessionId: this.record.id, documentId: document.id })
+    // Re-open for edit from saved / finalized / cart_attached without duplicating.
+    let next = applyLifecycle(existing, 'editing')
+    next = await this.persistence.saveSession(next, document)
+    this.record = ensureCustomizationFields(next)
+    eventBus.emit(platformEvents.SessionResumed, {
+      sessionId: this.record.id,
+      customizationId: this.record.customizationId,
+      documentId: document.id,
+      lifecycle: this.record.lifecycle,
+    })
     return structuredClone(this.record)
   }
 
@@ -110,85 +166,133 @@ export class PersonalizationSessionManager {
   }
 
   async autosave(): Promise<PersonalizationSessionRecord | null> {
-    if (!this.record || this.record.status === 'cancelled' || this.record.status === 'finalized') {
+    if (
+      !this.record ||
+      this.record.status === 'cancelled' ||
+      this.record.lifecycle === 'cancelled' ||
+      this.record.lifecycle === 'ordered'
+    ) {
       return null
+    }
+    // Re-enter editing from saved/finalized/cart_attached before mutating.
+    const life = this.record.lifecycle
+    if (life === 'saved' || life === 'finalized' || life === 'cart_attached') {
+      this.record = applyLifecycle(this.record, 'editing')
     }
     this.setStatus('autosaving')
     const document = this.requireEditorDocument()
-    await this.persistDocument(document)
-    const preview = buildProductionPreview(document)
+    const preview = await this.exporter.createSessionPreview(document)
     const now = new Date().toISOString()
     this.record = {
-      ...this.record,
+      ...ensureCustomizationFields(this.record),
       status: 'active',
+      lifecycle: 'editing',
       updatedAt: now,
       autosaveAt: now,
       schemaVersion: document.schemaVersion,
       preview,
     }
-    await this.sessionStore.save(this.record)
-    eventBus.emit(platformEvents.SessionAutosaved, { sessionId: this.record.id, at: now })
+    this.record = await this.persistence.saveSession(this.record, document)
+    eventBus.emit(platformEvents.SessionAutosaved, {
+      sessionId: this.record.id,
+      customizationId: this.record.customizationId,
+      at: now,
+    })
     return structuredClone(this.record)
   }
 
   async save(): Promise<{ record: PersonalizationSessionRecord; cart: CommerceCartPayload }> {
     if (!this.record) throw new Error('No active personalization session')
-    if (this.record.status === 'cancelled') throw new Error('Session cancelled')
+    if (this.record.status === 'cancelled' || this.record.lifecycle === 'cancelled') {
+      throw new Error('Session cancelled')
+    }
 
     const document = this.requireEditorDocument()
-    await this.persistDocument(document)
-    const preview = buildProductionPreview(document)
+    const preview = await this.exporter.createSessionPreview(document)
     const now = new Date().toISOString()
-    this.record = {
-      ...this.record,
-      status: 'saved',
-      updatedAt: now,
+    let next: PersonalizationSessionRecord = {
+      ...ensureCustomizationFields(this.record),
       schemaVersion: document.schemaVersion,
       preview,
+      updatedAt: now,
     }
-    await this.sessionStore.save(this.record)
+    // From finalized/cart_attached (re-edit) go through editing → saved.
+    if (next.lifecycle === 'finalized' || next.lifecycle === 'cart_attached') {
+      next = applyLifecycle(next, 'editing', now)
+    }
+    if (next.lifecycle === 'created') {
+      next = applyLifecycle(next, 'editing', now)
+    }
+    next = applyLifecycle(next, 'saved', now)
+    next = touchCurrentRevision(next, 'saved')
+    this.record = await this.persistence.saveSession(next, document)
     const cart = this.buildCartPayload(document, preview, now)
-    eventBus.emit(platformEvents.SessionSaved, { sessionId: this.record.id })
+    eventBus.emit(platformEvents.SessionSaved, {
+      sessionId: this.record.id,
+      customizationId: this.record.customizationId,
+      lifecycle: this.record.lifecycle,
+    })
     eventBus.emit(platformEvents.CartPayloadReady, cart)
     return { record: structuredClone(this.record), cart }
   }
 
   async finalize(): Promise<{ record: PersonalizationSessionRecord; cart: CommerceCartPayload }> {
-    const { record, cart } = await this.save()
+    const { record } = await this.save()
     this.clearAutosave()
     const now = new Date().toISOString()
-    this.record = {
-      ...record,
-      status: 'finalized',
-      finalizedAt: now,
-      updatedAt: now,
-    }
-    await this.sessionStore.save(this.record)
-    eventBus.emit(platformEvents.SessionFinalized, { sessionId: this.record.id, cart })
+    let next = applyLifecycle(record, 'finalized', now)
+    next = touchCurrentRevision(next, 'finalized')
+    this.record = await this.persistence.saveSession(next)
+    const document = this.requireEditorDocument()
+    const cart = this.buildCartPayload(
+      document,
+      this.record.preview ?? (await this.exporter.createSessionPreview(document)),
+      now,
+    )
+    eventBus.emit(platformEvents.SessionFinalized, {
+      sessionId: this.record.id,
+      customizationId: this.record.customizationId,
+      lifecycle: this.record.lifecycle,
+      cart,
+    })
     return { record: structuredClone(this.record), cart }
+  }
+
+  /** Host notifies that the customization is on a cart line. */
+  async markCartAttached(): Promise<PersonalizationSessionRecord> {
+    if (!this.record) throw new Error('No active personalization session')
+    const next = applyLifecycle(ensureCustomizationFields(this.record), 'cart_attached')
+    this.record = await this.persistence.saveSession(next)
+    return structuredClone(this.record)
+  }
+
+  /** Host notifies checkout completed for this customization. */
+  async markOrdered(): Promise<PersonalizationSessionRecord> {
+    if (!this.record) throw new Error('No active personalization session')
+    const next = applyLifecycle(ensureCustomizationFields(this.record), 'ordered')
+    this.record = await this.persistence.saveSession(next)
+    return structuredClone(this.record)
   }
 
   async cancel(): Promise<PersonalizationSessionRecord> {
     if (!this.record) throw new Error('No active personalization session')
     this.clearAutosave()
-    const now = new Date().toISOString()
-    this.record = {
-      ...this.record,
-      status: 'cancelled',
-      cancelledAt: now,
-      updatedAt: now,
-    }
-    await this.sessionStore.save(this.record)
-    eventBus.emit(platformEvents.SessionCancelled, { sessionId: this.record.id })
+    const next = applyLifecycle(ensureCustomizationFields(this.record), 'cancelled')
+    this.record = await this.persistence.saveSession(next)
+    eventBus.emit(platformEvents.SessionCancelled, {
+      sessionId: this.record.id,
+      customizationId: this.record.customizationId,
+      lifecycle: this.record.lifecycle,
+    })
     return structuredClone(this.record)
   }
 
   async generatePreview(): Promise<ProductionPreviewRef> {
     const document = this.requireEditorDocument()
-    const preview = buildProductionPreview(document)
+    const preview = await this.exporter.createSessionPreview(document)
     if (this.record) {
       this.record = { ...this.record, preview, updatedAt: new Date().toISOString() }
-      await this.sessionStore.save(this.record)
+      this.record = await this.persistence.saveSession(this.record, document)
     }
     eventBus.emit(platformEvents.PreviewGenerated, preview)
     return preview
@@ -217,12 +321,15 @@ export class PersonalizationSessionManager {
     savedAt: string,
   ): CommerceCartPayload {
     if (!this.record) throw new Error('No session')
+    const record = ensureCustomizationFields(this.record)
     return {
       schema: 'eko.commerce.cart/1',
-      sessionId: this.record.id,
+      sessionId: record.id,
+      customizationId: record.customizationId || record.id,
+      lifecycleStatus: record.lifecycle ?? 'finalized',
       documentId: document.id,
-      masterId: this.record.masterId,
-      product: this.record.product,
+      masterId: record.masterId,
+      product: record.product,
       documentJson: exportDocument(document),
       preview,
       savedAt,
@@ -232,13 +339,6 @@ export class PersonalizationSessionManager {
         pageCount: document.pages?.length ?? 1,
       },
     }
-  }
-
-  private async persistDocument(document: EkoDocument): Promise<EkoDocument> {
-    if (this.persistence) {
-      return this.persistence.save(document)
-    }
-    return this.documentProvider.saveDocument(document)
   }
 
   private hydrateEditor(document: EkoDocument): void {
@@ -274,6 +374,27 @@ export class PersonalizationSessionManager {
     this.clearAutosave()
     this.record = null
   }
+}
+
+function resolveSessionPersistence(
+  options: PersonalizationSessionManagerOptions,
+): SessionPersistenceProvider {
+  if (isSessionPersistenceProvider(options.persistence)) {
+    return options.persistence
+  }
+  if (options.persistence && options.sessionStore) {
+    return new BridgedSessionPersistenceProvider(options.persistence, options.sessionStore)
+  }
+  if (options.sessionStore) {
+    return new BridgedSessionPersistenceProvider(
+      new InMemorySessionPersistenceProvider(),
+      options.sessionStore,
+    )
+  }
+  if (options.persistence) {
+    return new BridgedSessionPersistenceProvider(options.persistence, new InMemorySessionStore())
+  }
+  return new InMemorySessionPersistenceProvider()
 }
 
 export class InMemorySessionStore implements PersonalizationSessionStore {

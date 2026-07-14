@@ -64,6 +64,13 @@ final class OrderPanel {
 		$session_id = (string) ($cart['sessionId'] ?? $item->get_meta(Settings::ORDER_SESSION_KEY, true));
 		$template_id = (string) ($cart['masterId'] ?? $item->get_meta(Settings::ORDER_TEMPLATE_KEY, true));
 		$preview = is_array($cart['preview'] ?? null) ? $cart['preview'] : [];
+		if ($preview === []) {
+			$raw_preview = $item->get_meta(Settings::ORDER_PREVIEW_KEY, true);
+			$decoded_preview = is_string($raw_preview) ? json_decode($raw_preview, true) : null;
+			if (is_array($decoded_preview)) {
+				$preview = $decoded_preview;
+			}
+		}
 		$version = (string) ($item->get_meta(Settings::ORDER_VERSION_KEY, true) ?: ($cart['schema'] ?? ''));
 		$saved_at = (string) ($cart['savedAt'] ?? '');
 		$status = !empty($payload['allowAdminReedit']) ? 'reopenable' : 'locked';

@@ -174,7 +174,7 @@ Isso registra a rota `/eko-print-studio/editor/`.
 ## 6. Produto de teste
 
 1. Crie um produto simples no WooCommerce
-2. Em **Dados do produto**, preencha **Eko Template ID** com:
+2. Em **Dados do produto**, selecione **Template Master** (ex.: Caneca Brasil). O ID interno salvo continua sendo:
 
 ```text
 template_caneca-brasil
@@ -222,7 +222,7 @@ template_caneca-brasil
 - [ ] `npm run dev` abre o editor
 - [ ] `npm test` passa
 - [ ] Plugin aparece em WP após cópia + ativação
-- [ ] Template ID no produto exibe o botão Personalizar
+- [ ] Template Master selecionado no produto exibe o botão Personalizar
 
 ### Como validar
 

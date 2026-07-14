@@ -14,9 +14,12 @@ final class Settings {
 	public const CART_KEY = 'eko_personalization';
 	public const ORDER_META_KEY = '_eko_commerce_order';
 	public const ORDER_SESSION_KEY = '_eko_session_id';
+	/** Business Customization id (equals session id when migrated). */
+	public const ORDER_CUSTOMIZATION_KEY = '_eko_customization_id';
 	public const ORDER_PREVIEW_KEY = '_eko_preview';
 	public const ORDER_TEMPLATE_KEY = '_eko_template_id';
 	public const ORDER_VERSION_KEY = '_eko_contract_version';
+	public const ORDER_LIFECYCLE_KEY = '_eko_customization_lifecycle';
 
 	/** @return array<string, mixed> */
 	public static function defaults(): array {

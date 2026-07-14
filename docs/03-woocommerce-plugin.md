@@ -119,11 +119,14 @@ flowchart LR
 
 1. **Produtos → Adicionar**
 2. Defina nome, preço, publique
-3. Em **Dados do produto → Geral**, localize **Eko Template ID**
-4. Preencha: `template_caneca-brasil` (demo do repositório)
-5. **Template mode** (preparado):
+3. Em **Dados do produto → Geral**, localize **Template Master**
+4. Selecione no dropdown (ex.: **Caneca Brasil**, **Cartão Premium**, **Flyer A5**, **Banner 90x120**) — o administrador **não digita IDs**
+5. (Opcional) Em **WooCommerce → Eko Print Studio**, clique **Sincronizar templates do editor** para atualizar a lista a partir de `{editor_url}/templates/catalog.json`
+6. **Template mode** (preparado):
    - `Unique template` — padrão
    - `Per variation` / `Dynamic` / `Category` / `Collection` — **preparados** (meta de variação já existe; resolução dinâmica completa: **a evoluir**)
+
+A meta interna permanece `_eko_template_id` (compatível com produtos já cadastrados). Produtos antigos com ID válido continuam funcionando; se o ID não estiver no catálogo, o select mostra uma opção legada “Template atual (…)”.
 
 **Resultado esperado:** na página do produto aparece o botão **Personalizar**.
 
@@ -159,31 +162,33 @@ Edite textos / imagens / formas (fluxo Creator).
 
 ---
 
-## Passo 7 — Salvar e adicionar ao carrinho
+## Passo 7 — Salvar, preview e carrinho
 
 1. No editor (modo commerce), clique **Save**
 2. Isso chama `finalizeCustomization()` no adapter
-3. O editor envia `postMessage` (`woocommerce.cart.add` + payload)
+3. O ExportProvider gera `preview.png` e o editor envia `postMessage` (`woocommerce.cart.add` + payload)
 4. O host chama:
 
 ```http
 POST /wp-json/eko-print/v1/add-to-cart
 ```
 
-5. Você é redirecionado ao carrinho
+5. A PDP atualiza: ✓ Personalização concluída + miniatura oficial + **Editar Personalização**
+6. O botão “Ver carrinho” leva ao carrinho (sem redirect forçado)
 
 **Resultado esperado:**
 
-- Item no carrinho com dados visíveis (“Personalização · sessão …”)
-- Meta interna `eko_personalization` (contrato `eko.commerce.cart/1`)
+- PDP com miniatura = `preview.data` (raster oficial — sem regenerar)
+- Item no carrinho com thumb PNG + badge **Personalizado** + nome da arte
+- Meta interna `eko_personalization` (contrato `eko.commerce.cart/1` + `customizationId` / `lifecycleStatus`)
+- Reabrir o editor reutiliza o mesmo Customization (`customizationId` ≡ `sessionId` em v1)
 
 > ![Screenshot 04 — Carrinho](./assets/screenshots/04-cart.png)
 
 ```ascii
 +----------------------------------+
-| Caneca Brasil            R$ 59  |
-| Personalização: sessão abc123… |
-| Arte: Caneca Brasil (session)  |
+| [preview.png] Caneca Brasil  R$59|
+| Personalizado · Arte: Caneca…  |
 +----------------------------------+
 ```
 
@@ -198,8 +203,10 @@ Conclua o checkout normalmente.
 | Meta | Conteúdo |
 |------|----------|
 | `_eko_commerce_order` | JSON `CommerceOrderPayload` |
-| `_eko_session_id` | Session id |
-| `_eko_template_id` | Master / template id |
+| `_eko_session_id` | Session id (chave de persistência) |
+| `_eko_customization_id` | Customization id (≡ session em v1) |
+| `_eko_customization_lifecycle` | `ordered` após checkout |
+| `_eko_template_id` | Master id interno (escolhido via select **Template Master**) |
 | `_eko_contract_version` | `eko.commerce.cart/1` |
 | `_eko_preview` | Preview ref (quando presente) |
 
@@ -251,7 +258,7 @@ GET /wp-json/eko-print/v1/order-payload/{orderId}/{itemId}
 
 ### O que deve funcionar
 
-- [ ] Botão Personalizar no produto com Template ID
+- [ ] Botão Personalizar no produto com Template Master selecionado
 - [ ] Editor abre no modo escolhido
 - [ ] Save finaliza e adiciona ao carrinho
 - [ ] Pedido guarda meta Eko
@@ -266,7 +273,7 @@ GET /wp-json/eko-print/v1/order-payload/{orderId}/{itemId}
 ### Erros mais comuns
 
 - URL do Editor vazia
-- Template ID errado / vazio (botão some)
+- Template Master não selecionado / ID legado inválido (botão some)
 - Permalinks
 - CORS / origem postMessage
 - Nonce expirado (recarregue a página do produto)

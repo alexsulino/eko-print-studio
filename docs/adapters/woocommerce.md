@@ -6,14 +6,94 @@ Há **duas peças** com nomes parecidos:
 
 | Peça | Onde mora | Runtime |
 |------|-----------|---------|
-| **WooCommerce Adapter (TS)** | `src/adapters/woocommerce/` | Dentro do **editor SPA** |
+| **WooCommerceCommerceProvider** | `src/adapters/woocommerce/` | Dentro do **editor SPA** (implementa `CommerceProvider`) |
 | **Plugin WordPress** | `integrations/woocommerce/eko-print-studio/` | **PHP + JS** na loja |
 
-Este documento cobre o **adapter TypeScript** e como ele se encaixa com o plugin.
+O SDK/App **não** importam WooCommerce. Eles usam `bootCommerceFromUrl` → `createCommerceProvider({ platform: 'woocommerce' })`.
+
+`WooCommerceAdapter` permanece como fachada **deprecated** sobre `WooCommerceCommerceProvider`.
 
 Tutorial do plugin: [03 — Plugin WooCommerce](../03-woocommerce-plugin.md).
 
 ---
+
+## Persistência de sessão (produção)
+
+No embed commerce, o host passa `restUrl` + `persistenceToken` (vindos de `product-context`).
+
+O editor chama `createCommercePersistence` → **WooCommercePersistenceProvider** (primary) + **LocalPersistenceProvider** (fallback/mirror).
+
+```text
+start/autosave/finalize
+  → SessionPersistenceProvider.saveSession(record, document)
+  → PUT /wp-json/eko-print/v1/sessions/{id}
+  → SessionRepository (CPT eko_ps_session)
+```
+
+O manager SDK **não** conhece WooCommerce — só a interface. localStorage não é o mecanismo principal quando as credenciais REST estão presentes.
+
+## Export / preview (produção)
+
+No boot commerce, `createSessionExport({ includeRaster: true })` configura **CompositeExportProvider** (Domain + Raster).
+
+```text
+save / finalize
+  → ExportProvider.createSessionPreview(document)
+  → ProductionPreviewRef { format: png, filename: preview.png, domainData }
+  → record.preview  (persistido no mesmo saveSession — sem chamada extra)
+```
+
+O contract de Persistence **não muda**: apenas recebe o preview já produzido.
+
+## Apresentação Woo (preview lifecycle)
+
+```text
+finalize → postMessage woocommerce.cart.add { preview, customizationId, lifecycleStatus }
+  → host-bridge salva estado PDP (sessionStorage) + renderiza miniatura oficial
+  → REST add-to-cart (reusa linha se mesmo sessionId / customizationId)
+  → SessionRepository.lifecycle = cart_attached
+  → CartPersistence / checkout / order meta `_eko_preview` + `_eko_customization_id`
+```
+
+| Superfície | Fonte da imagem |
+|------------|-----------------|
+| PDP | `record.preview` do payload (host-bridge) |
+| Carrinho / mini-cart / checkout | `cart_item.eko_personalization.preview` |
+| Pedido (admin) | `_eko_preview` / `cart.preview` |
+
+Sem regeneração no PHP. Pedidos sem raster mantêm badge/legado.
+
+## Customization (ciclo de vida no Woo)
+
+O SDK traz a entidade **Customization**; o Woo só **referencia** ids:
+
+```text
+created → editing → saved → finalized → cart_attached → ordered
+                         ↘ cancelável em qualquer passo pré-pedido
+                         ↗ reabrir (Editar Personalização) → editing
+```
+
+| Momento | Identificadores |
+|---------|-----------------|
+| Abrir editor | `sessionId` na URL (= `customizationId` em v1) |
+| Editar Personalização | host-bridge reusa `customizationId` / `sessionId` do sessionStorage |
+| Carrinho | `eko_personalization.sessionId` + `.customizationId` + `.lifecycleStatus` |
+| Pedido | `_eko_session_id`, `_eko_customization_id`, `_eko_customization_lifecycle=ordered` |
+
+Registros antigos com apenas `sessionId` migram em leitura (`customizationId = sessionId`).
+
+## Template Masters no produto
+
+O seletor **Template Master** no admin do produto Woo lê o catálogo público do editor (`eko.templates.catalog/1`), não um campo de ID livre.
+
+| Peça | Onde |
+|------|------|
+| Registry oficial | `src/core/templates/` (`TemplateRegistry` + builtins) |
+| Catálogo público | `public/templates/catalog.json` (servido pelo Vite/build) |
+| Host Woo | `integrations/woocommerce/.../config/TemplateCatalog.php` (+ JSON embutido + sync opcional) |
+| Meta persistida | `_eko_template_id` (somente o id interno) |
+
+O plugin **não importa** Core/TS. Ele consome o JSON do catálogo. O editor permanece independente do Woo.
 
 ## Por que existe?
 
@@ -38,62 +118,62 @@ Para outra loja (Shopify…), crie **outro** adapter — não estenda este com `
 ```mermaid
 sequenceDiagram
   participant Plugin as Plugin host-bridge.js
-  participant Adapter as WooCommerceAdapter
+  participant Boot as bootCommerceFromUrl
+  participant Provider as WooCommerceCommerceProvider
   participant SDK as EkoPrintStudio
   participant Core as Core
 
-  Plugin->>Adapter: boot URL / openEditor
-  Adapter->>SDK: openPersonalization
+  Plugin->>Boot: URL commerce params
+  Boot->>Provider: createCommerceProvider(woocommerce)
+  Provider->>SDK: prepare + openPersonalization
   SDK->>Core: sessão + documento
-  Note over Adapter: usuário edita
-  Adapter->>SDK: finalizePersonalization
-  SDK-->>Adapter: CommerceCartPayload
-  Adapter->>Plugin: postMessage woocommerce.cart.add
+  Note over Provider: usuário edita
+  Provider->>SDK: finalizePersonalization
+  SDK-->>Provider: CommerceCartPayload
+  Provider->>Plugin: postMessage woocommerce.cart.add
   Plugin->>Plugin: POST /eko-print/v1/add-to-cart
 ```
 
-Boot helper: `bootWooCommerceFromUrl` (lê query params e inicia o adapter).
+Boot oficial: `bootCommerceFromUrl` (`@/providers/commerce`). Alias BC: `bootWooCommerceFromUrl`.
 
 ---
 
-## API do `WooCommerceAdapter`
+## API — `WooCommerceCommerceProvider` (CommerceProvider)
 
-### Construtor
+```ts
+import { createCommerceProvider, bootCommerceFromUrl } from '@/providers/commerce'
+
+const provider = createCommerceProvider({
+  platform: 'woocommerce',
+  editor,
+  defaultEmbedMode: 'modal',
+  targetOrigin: 'https://loja.exemplo.com',
+})
+
+await provider.prepare({ restUrl, persistenceToken: token })
+await provider.start({ product, hostWindow: window.parent })
+const cart = await provider.finalize() // → postMessage woocommerce.cart.add
+provider.notifyHostClose()
+```
+
+| Método CommerceProvider | Papel |
+|-------------------------|-------|
+| `prepare` | Persistence (Woo REST) + Export raster |
+| `start` / `reopen` | Abrir / retomar personalização |
+| `save` / `finalize` / `cancel` | Ciclo de edição + handoff |
+| `addToCart` / `updateCartItem` | Transporte host |
+| `attachToOrder` | Payload de pedido |
+| `notifyHostClose` | Fecha shell do host |
+
+### Alias deprecated — `WooCommerceAdapter`
 
 ```ts
 import { WooCommerceAdapter } from '@/adapters/woocommerce'
-
-const woo = new WooCommerceAdapter({
-  editorOptions: { documentProvider },
-  defaultEmbedMode: 'modal',
-  targetOrigin: 'https://loja.exemplo.com', // origem do parent; ou '*'
-})
+// openEditor → start, finalizeCustomization → finalize, …
+const woo = new WooCommerceAdapter({ editor })
 ```
 
-| Opção | Descrição |
-|-------|-----------|
-| `editor` | Instância `EkoPrintStudio` pré-criada |
-| `editorOptions` | Passadas ao criar o SDK |
-| `defaultEmbedMode` | `modal` (default) \| `iframe` \| `page` |
-| `targetOrigin` | postMessage origin (default `*`) |
-
----
-
-### `openEditor({ product, embedMode?, sessionId?, autosaveMs?, hostWindow? })`
-
-Abre personalização; opcionalmente liga `bindPostMessageTransport` se `hostWindow` for passado.
-
----
-
-### `saveCustomization(): Promise<CommerceCartPayload>`
-
-Chama `savePersonalization`.
-
----
-
-### `finalizeCustomization(): Promise<CommerceCartPayload>`
-
-Finaliza e publica no bus:
+Finalize publica no bus:
 
 ```text
 channel: eko.commerce

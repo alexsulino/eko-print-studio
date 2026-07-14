@@ -4,6 +4,126 @@ All notable changes to Eko Print Studio are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/), and this project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — CommerceProvider (v0.8.7)
+
+### Added
+
+- Platform contract **CommerceProvider** (alongside Template / Persistence / Export)
+- `HostCommerceProvider` base + `bootCommerceFromUrl` / `createCommerceProvider`
+- **WooCommerceCommerceProvider** — official Woo implementation (cart/postMessage/REST prepare)
+- Stubs: `ShopifyCommerceProvider`, `MagentoCommerceProvider`, `NuvemshopCommerceProvider`
+- `EkoPrintStudio.configureCommerce` / `getCommerce`
+- Neutral host messages: `commerce.cart.add`, `commerce.editor.close` (Woo still emits `woocommerce.*` aliases)
+
+### Changed
+
+- `App.tsx` boots via `CommerceProvider` only — no `@/adapters/woocommerce` import
+- `WooCommerceAdapter` / `bootWooCommerceFromUrl` kept as deprecated façades
+- WordPress plugin unchanged in behavior; host-bridge also accepts neutral commerce messages
+
+### Notes
+
+- PersistenceProvider / ExportProvider / Customization lifecycle contracts unchanged
+- New storefronts = new CommerceProvider implementation — SDK stays store-agnostic
+
+## [Unreleased] — Customization lifecycle entity (v0.8.6)
+
+### Added
+
+- Business entity **Customization** (`eko.customization/1`) with `lifecycle`, `customizationId`, `revisions[]`
+- Valid lifecycle transitions: `created → editing → saved → finalized → cart_attached → ordered` (+ reopen / cancel)
+- `CustomizationLifecycle` helpers + `PersonalizationSessionManager.getCustomization()` / `markCartAttached()` / `markOrdered()`
+- Cart / order payloads carry optional `customizationId` + `lifecycleStatus` (schema cart/1 unchanged)
+- Woo meta `_eko_customization_id`, `_eko_customization_lifecycle`; SessionRepository indexes customization + lifecycle
+- Transparent migration: session-only records → `customizationId === sessionId`
+
+### Changed
+
+- “Editar Personalização” resumes by `customizationId` / `sessionId` without spawning duplicates
+- `add-to-cart` marks `cart_attached` and matches cart lines by customization or session id
+- Checkout marks session repository lifecycle `ordered`
+
+### Notes
+
+- Editor `status` (active/autosaving/…) remains separate from business `lifecycle`
+- `revisions` holds a tip today — multi-revision / collaboration can append without changing cart/order contracts
+- Compatible with Template / Persistence / Export / Preview stages
+
+## [Unreleased] — WooCommerce preview presentation (v0.8.5)
+
+### Added
+
+- PDP status panel after finalize: ✓ Personalização concluída + official `preview.png` thumb + last update time
+- Button label switches to **Editar Personalização** and resumes the same `sessionId` (sessionStorage host state)
+- `PreviewPresenter` PHP helper — raster detection / img HTML without regenerating previews
+- Cart / checkout item name badge **Personalizado** + art name; thumbnail uses ExportProvider raster when present
+- `add-to-cart` replaces the cart line for the same `sessionId` (edit without duplicating)
+- Admin order panel shows official raster thumb; legacy domain orders keep previous message
+
+### Changed
+
+- Finalize no longer forces redirect to cart — PDP stays visible with “Ver carrinho”
+- Frontend CSS enqueued on cart/checkout for shared preview styles
+
+## [Unreleased] — Official ExportProvider (v0.8.4)
+
+### Added
+
+- **ExportProvider** platform contract with `createSessionPreview` + `formats`
+- Providers: `DomainExportProvider`, `RasterExportProvider`, `CompositeExportProvider`, stubs `FuturePdfExportProvider` / `FuturePrintExportProvider`
+- Factory `createSessionExport` — domain-only (standalone) or Domain+Raster (commerce)
+- Commerce save/autosave/finalize generate official `preview.png` via ExportProvider (persisted on the session record)
+- `EkoPrintStudio.configureExport` for host boot swaps
+- `ProductionPreviewRef.filename` (`preview.png`) + `domainData` (JSON companion)
+
+### Changed
+
+- `PersonalizationSessionManager` no longer calls `buildProductionPreview` directly — only `ExportProvider`
+- Woo commerce boot wires raster session export; standalone Creator keeps domain-only
+
+### Notes
+
+- PersistenceProvider contract unchanged — receives a finished `record.preview`
+- Next step (Woo PDP/cart thumbnail UI) can consume the same `preview` contract without SDK changes
+
+## [Unreleased] — Production Session Persistence Providers (v0.8.3)
+
+### Added
+
+- **SessionPersistenceProvider** platform contract (`saveSession` / `loadSession`) alongside document persistence
+- Providers: `LocalPersistenceProvider` (sessions+docs), `InMemorySessionPersistenceProvider`, `CompositePersistenceProvider`, `WooCommercePersistenceProvider`
+- Factory `createCommercePersistence` — Woo remote primary + Local fallback/mirror for commerce embeds
+- PHP `SessionRepository` (CPT `eko_ps_session`) + `SessionToken` + REST `/sessions` / `/documents`
+- `EkoPrintStudio.configurePersistence` for host boot swaps
+- host-bridge passes `restUrl` + `persistenceToken` into the editor URL
+
+### Changed
+
+- `PersonalizationSessionManager` talks only to `SessionPersistenceProvider` (no concrete Local/Woo knowledge)
+- Commerce boot no longer uses `LocalPersonalizationSessionStore` as the primary store
+
+### Notes
+
+- localStorage remains offline/fallback only in the WooCommerce persistence stack
+- Standalone Creator still uses LocalPersistenceProvider
+
+## [Unreleased] — Template Master Registry & Woo select (v0.8.2)
+
+### Added
+
+- **Template Registry** (`src/core/templates/`): official master catalog (`id`, `name`, `category`, `thumbnail`, `status`) seeded with Caneca Brasil, Cartão Premium, Flyer A5, Banner 90x120
+- Public catalog at `public/templates/catalog.json` (`eko.templates.catalog/1`) for host sync
+- WooCommerce **Template Master** `<select>` on product/variation (replaces free-text Template ID); meta `_eko_template_id` unchanged
+- Plugin `TemplateCatalog` + optional **Sincronizar templates do editor** + REST `GET /eko-print/v1/templates`
+
+### Changed
+
+- `LocalDocumentProvider` seeds masters from the Template Registry (no direct `sampleDocuments` import)
+
+### Notes
+
+- Existing `_eko_template_id` values remain compatible; unknown ids appear as a legacy select option
+
 ## [Unreleased] — WooCommerce Production Plugin (v0.8.1)
 
 ### Added

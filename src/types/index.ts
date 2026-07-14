@@ -37,7 +37,18 @@ export type {
   PersonalizationSessionStatus,
   ProductionPreviewRef,
   CommerceSessionSnapshot,
+  CustomizationLifecycleStatus,
+  CustomizationRecord,
+  CustomizationRevision,
 } from './commerce'
+export {
+  CUSTOMIZATION_SCHEMA,
+  CUSTOMIZATION_TRANSITIONS,
+  canTransitionCustomization,
+  ensureCustomizationFields,
+  migrateSessionToCustomization,
+  lifecycleFromSessionStatus,
+} from './customization'
 export type { ViewportState } from './viewport'
 export type {
   WorkspaceState,

@@ -7,10 +7,35 @@ if (!defined('ABSPATH') || !current_user_can('manage_woocommerce')) {
 
 /** @var array<string,mixed> $settings */
 $settings = $settings ?? \EkoPrintStudio\Config\Settings::all();
+/** @var list<array{id:string,name:string,category?:string,status:string}> $templates */
+$templates = $templates ?? \EkoPrintStudio\Config\TemplateCatalog::published();
+$sync_flag = isset($_GET['eko_sync']) ? (string) $_GET['eko_sync'] : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 ?>
 <div class="wrap">
 	<h1><?php echo esc_html__('Eko Print Studio', 'eko-print-studio'); ?></h1>
 	<p><?php echo esc_html__('Configure apenas a ponte comercial. A inteligência do editor fica no SDK.', 'eko-print-studio'); ?></p>
+
+	<?php if ($sync_flag === '1') : ?>
+		<div class="notice notice-success is-dismissible"><p>
+			<?php
+			echo esc_html(sprintf(
+				/* translators: %d: template count */
+				__('Catálogo sincronizado: %d template(s) Master.', 'eko-print-studio'),
+				(int) ($_GET['eko_sync_count'] ?? 0) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			));
+			?>
+		</p></div>
+	<?php elseif ($sync_flag === '0') : ?>
+		<div class="notice notice-error is-dismissible"><p>
+			<?php
+			echo esc_html(sprintf(
+				/* translators: %s: error message */
+				__('Falha ao sincronizar templates: %s', 'eko-print-studio'),
+				sanitize_text_field(rawurldecode((string) ($_GET['eko_sync_error'] ?? ''))) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			));
+			?>
+		</p></div>
+	<?php endif; ?>
 
 	<form method="post" action="options.php">
 		<?php settings_fields('eko_ps_settings_group'); ?>
@@ -82,4 +107,38 @@ $settings = $settings ?? \EkoPrintStudio\Config\Settings::all();
 		</table>
 		<?php submit_button(__('Salvar configurações', 'eko-print-studio')); ?>
 	</form>
+
+	<hr />
+
+	<h2><?php echo esc_html__('Templates Master', 'eko-print-studio'); ?></h2>
+	<p><?php echo esc_html__('A lista abaixo alimenta o seletor no produto. Preferência: sincronizar do editor público (`/templates/catalog.json`). Sem sincronização, usa o catálogo embutido no plugin.', 'eko-print-studio'); ?></p>
+
+	<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:1em;">
+		<input type="hidden" name="action" value="eko_ps_sync_templates" />
+		<?php wp_nonce_field('eko_ps_sync_templates'); ?>
+		<?php submit_button(__('Sincronizar templates do editor', 'eko-print-studio'), 'secondary', 'submit', false); ?>
+	</form>
+
+	<?php if ($templates === []) : ?>
+		<p><em><?php echo esc_html__('Nenhum Template Master disponível.', 'eko-print-studio'); ?></em></p>
+	<?php else : ?>
+		<table class="widefat striped" style="max-width:720px;">
+			<thead>
+				<tr>
+					<th><?php echo esc_html__('Nome', 'eko-print-studio'); ?></th>
+					<th><?php echo esc_html__('Categoria', 'eko-print-studio'); ?></th>
+					<th><?php echo esc_html__('Status', 'eko-print-studio'); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ($templates as $template) : ?>
+					<tr>
+						<td><?php echo esc_html((string) $template['name']); ?></td>
+						<td><?php echo esc_html((string) ($template['category'] ?? '—')); ?></td>
+						<td><?php echo esc_html((string) ($template['status'] ?? 'published')); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+	<?php endif; ?>
 </div>

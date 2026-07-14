@@ -1,6 +1,7 @@
-import type { CommerceEmbedMode, CommerceProductContext } from '@/types/commerce'
-import { WooCommerceAdapter } from '@/adapters/woocommerce/WooCommerceAdapter'
 import type { EkoPrintStudio } from '@/sdk/EkoPrintStudio'
+import { bootCommerceFromUrl } from '@/providers/commerce/bootCommerceFromUrl'
+import { WooCommerceCommerceProvider } from './WooCommerceCommerceProvider'
+import { WooCommerceAdapter } from './WooCommerceAdapter'
 
 export interface WooCommerceHostBootOptions {
   editor: EkoPrintStudio
@@ -10,45 +11,26 @@ export interface WooCommerceHostBootOptions {
 }
 
 /**
- * Editor-side boot for WooCommerce embeds.
- * Reads public query params and opens a personalization session via the adapter.
- * Safe for iframe / modal / page hosts — no Core imports.
+ * @deprecated Prefer {@link bootCommerceFromUrl} from `@/providers/commerce`.
+ * Editor-side boot for WooCommerce embeds — thin wrapper for backward compatibility.
  */
 export async function bootWooCommerceFromUrl(options: WooCommerceHostBootOptions) {
-  const params = new URLSearchParams(options.search ?? (typeof window !== 'undefined' ? window.location.search : ''))
-  const templateId = params.get('templateId') || ''
-  const productId = params.get('productId') || ''
-  const sessionId = params.get('sessionId') || undefined
-  const embed = (params.get('embed') as CommerceEmbedMode | null) || 'modal'
-  const autosaveMs = Number(params.get('autosaveMs') ?? 15000)
-  const variationId = params.get('variationId') || undefined
-  const hostOrigin = params.get('hostOrigin') || undefined
+  const result = await bootCommerceFromUrl({
+    ...options,
+    platform: 'woocommerce',
+  })
+  if (!result) return null
 
-  if (!templateId && !sessionId) {
-    return null
-  }
+  const provider =
+    result.provider instanceof WooCommerceCommerceProvider
+      ? result.provider
+      : new WooCommerceCommerceProvider({ editor: options.editor })
 
   const adapter = new WooCommerceAdapter({
     editor: options.editor,
-    defaultEmbedMode: embed,
-    targetOrigin: options.targetOrigin ?? hostOrigin ?? '*',
+    provider,
+    targetOrigin: options.targetOrigin,
   })
 
-  const product: CommerceProductContext = {
-    productId: productId || 'unknown',
-    templateId: templateId || 'unknown',
-    variationId,
-    quantity: 1,
-    hostMeta: { hostOrigin },
-  }
-
-  const record = await adapter.openEditor({
-    product,
-    sessionId,
-    embedMode: embed,
-    autosaveMs: Number.isFinite(autosaveMs) ? autosaveMs : 15000,
-    hostWindow: typeof window !== 'undefined' ? window.parent : undefined,
-  })
-
-  return { adapter, record }
+  return { adapter, provider, record: result.record }
 }

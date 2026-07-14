@@ -339,4 +339,5 @@ export const sampleMasterTemplate: EkoDocument = {
   ],
 }
 
+/** @deprecated Prefer `SAMPLE_MASTER_ID` from `@/core/templates` — kept for existing test imports. */
 export const SAMPLE_MASTER_ID = sampleMasterTemplate.id

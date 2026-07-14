@@ -6,7 +6,7 @@ namespace EkoPrintStudio\Frontend;
 use EkoPrintStudio\Config\Settings;
 
 /**
- * Lazy-load host bridge assets only on product / editor pages.
+ * Lazy-load host bridge assets on product / cart / checkout / editor pages.
  */
 final class Assets {
 	public function register(): void {
@@ -14,7 +14,10 @@ final class Assets {
 	}
 
 	public function maybe_enqueue(): void {
-		if (!is_product() && !$this->is_editor_page()) {
+		$needs_bridge = is_product() || $this->is_editor_page();
+		$needs_preview_css = $needs_bridge || is_cart() || is_checkout();
+
+		if (!$needs_preview_css) {
 			return;
 		}
 
@@ -32,6 +35,10 @@ final class Assets {
 			EKO_PS_VERSION
 		);
 
+		if (!$needs_bridge) {
+			return;
+		}
+
 		wp_enqueue_script(
 			'eko-ps-host',
 			EKO_PS_URL . 'assets/js/host-bridge.js',
@@ -41,18 +48,23 @@ final class Assets {
 		);
 
 		wp_localize_script('eko-ps-host', 'EkoPsHost', [
-			'config'      => Settings::public_config(),
-			'restUrl'     => esc_url_raw(rest_url('eko-print/v1')),
-			'nonce'       => wp_create_nonce('wp_rest'),
-			'productId'   => $product ? (string) $product->get_id() : '',
-			'templateId'  => $template_id,
-			'i18n'        => [
+			'config'     => Settings::public_config(),
+			'restUrl'    => esc_url_raw(rest_url('eko-print/v1')),
+			'nonce'      => wp_create_nonce('wp_rest'),
+			'productId'  => $product ? (string) $product->get_id() : '',
+			'templateId' => $template_id,
+			'i18n'       => [
 				'personalize' => (string) Settings::get('button_label'),
+				'edit'        => __('Editar Personalização', 'eko-print-studio'),
+				'completed'   => __('Personalização concluída', 'eko-print-studio'),
+				'updatedAt'   => __('Última atualização:', 'eko-print-studio'),
+				'personalized'=> __('Personalizado', 'eko-print-studio'),
+				'viewCart'    => __('Ver carrinho', 'eko-print-studio'),
 				'saving'      => __('Salvando personalização…', 'eko-print-studio'),
 				'error'       => __('Não foi possível abrir o editor.', 'eko-print-studio'),
 				'added'       => __('Personalização adicionada ao carrinho.', 'eko-print-studio'),
 			],
-			'cartUrl'     => wc_get_cart_url(),
+			'cartUrl'    => wc_get_cart_url(),
 		]);
 	}
 

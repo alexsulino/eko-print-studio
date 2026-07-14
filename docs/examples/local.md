@@ -117,7 +117,7 @@ Salvar.
 1. **Produtos → Adicionar**
 2. Nome: `Caneca Brasil Demo`
 3. Preço: `59.90`
-4. Em **Eko Template ID**: `template_caneca-brasil`
+4. Em **Template Master**: selecione **Caneca Brasil**
 5. Publicar
 6. Abrir o produto na loja
 

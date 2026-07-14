@@ -29,20 +29,24 @@ import {
   ToastHost,
   themeEngine,
 } from '@/ui'
-import { bootWooCommerceFromUrl } from '@/adapters/woocommerce'
-import type { WooCommerceAdapter } from '@/adapters/woocommerce'
+import type { CommerceProvider } from '@/core/platform/providers'
+import { bootCommerceFromUrl } from '@/providers/commerce'
 import { localDocumentProvider } from '@/providers/LocalDocumentProvider'
 import { LocalPersistenceProvider } from '@/providers/LocalPersistenceProvider'
-import { LocalPersonalizationSessionStore } from '@/providers/LocalPersonalizationSessionStore'
+import { createSessionExport } from '@/providers/export'
 import { EkoPrintStudio } from '@/sdk/EkoPrintStudio'
 import '@/styles/editor.css'
 import '@/ui/styles/ui.css'
 
-function createCommerceEditor() {
+function createEditor() {
+  // Standalone: Local persistence + Domain export.
+  // Commerce boot swaps persistence + export + CommerceProvider via providers/commerce.
   return new EkoPrintStudio({
     documentProvider: localDocumentProvider,
-    providers: { persistence: new LocalPersistenceProvider() },
-    sessionStore: new LocalPersonalizationSessionStore(),
+    providers: {
+      persistence: new LocalPersistenceProvider(),
+      export: createSessionExport({ includeRaster: false }),
+    },
   })
 }
 
@@ -51,7 +55,7 @@ function CreatorApp() {
   const session = useEditorSession()
   const snap = useEditorSnapshot()
   const bootstrappedRef = useRef(false)
-  const commerceAdapterRef = useRef<WooCommerceAdapter | null>(null)
+  const commerceProviderRef = useRef<CommerceProvider | null>(null)
   const [commerceMode, setCommerceMode] = useState(false)
   const { open: diagnosticsOpen, setOpen: setDiagnosticsOpen } = useDiagnosticsMode()
   const { mode, setMode } = useThemeMode('canva')
@@ -69,13 +73,13 @@ function CreatorApp() {
       void editor.bootstrap()
       return
     }
-    void bootWooCommerceFromUrl({ editor })
+    void bootCommerceFromUrl({ editor })
       .then((result) => {
         if (!result) {
           void editor.bootstrap()
           return
         }
-        commerceAdapterRef.current = result.adapter
+        commerceProviderRef.current = result.provider
         setCommerceMode(true)
         const theme = params.get('theme') as 'canva' | 'light' | 'dark' | null
         if (theme) setMode(theme)
@@ -95,9 +99,10 @@ function CreatorApp() {
 
   const saveHandler = document
     ? async () => {
-        if (commerceMode && commerceAdapterRef.current) {
-          await commerceAdapterRef.current.finalizeCustomization()
-          commerceAdapterRef.current.notifyHostClose()
+        const commerce = commerceProviderRef.current ?? editor.getCommerce()
+        if (commerceMode && commerce) {
+          await commerce.finalize()
+          commerce.notifyHostClose()
           return
         }
         session.saveLocalDownload()
@@ -184,7 +189,7 @@ function CreatorApp() {
 export default function App() {
   const editorRef = useRef<EkoPrintStudio | null>(null)
   if (!editorRef.current) {
-    editorRef.current = createCommerceEditor()
+    editorRef.current = createEditor()
   }
   return (
     <EditorProvider editor={editorRef.current}>

@@ -179,9 +179,19 @@ await editor.bootstrap('template_caneca-brasil')
 
 ---
 
+### `configureCommerce(provider: CommerceProvider): void`
+
+Anexa o `CommerceProvider` ativo (WooCommerce / Shopify / …). Preferível a orquestrar via `bootCommerceFromUrl`.
+
+### `getCommerce(): CommerceProvider | null`
+
+Provider de comércio configurado, ou `null` no Creator standalone.
+
+---
+
 ### `openPersonalization(options): Promise<PersonalizationSessionRecord>`
 
-**Descrição:** Inicia ou retoma personalização commerce.
+**Descrição:** Inicia ou retoma uma **Customization** (personalização commerce). Em v1, `sessionId` e `customizationId` são o mesmo valor. Em produção, o host chama isso através de `CommerceProvider.start()` — não de uma classe Woo.
 
 **Parâmetros (`CommerceOpenEditorOptions`):**
 
@@ -189,7 +199,7 @@ await editor.bootstrap('template_caneca-brasil')
 |-------|------|-----------|
 | `product` | `CommerceProductContext` | Contexto do SKU |
 | `embedMode?` | `'modal' \| 'iframe' \| 'page'` | Default efetivo no manager: `'page'` se omitido |
-| `sessionId?` | `string` | Se presente, retoma |
+| `sessionId?` | `string` | Se presente, retoma (aceita customizationId migrado) |
 | `autosaveMs?` | `number` | Default `15000`; `0` desliga |
 
 **Erros:**
@@ -197,37 +207,39 @@ await editor.bootstrap('template_caneca-brasil')
 - `DocumentProvider required for personalization sessions`
 - `instance destroyed`
 
-**Boas práticas:** sempre envie `templateId` válido no `product`.
+**Boas práticas:** sempre envie `templateId` válido no `product`. Reabra com o mesmo id para evitar duplicatas.
+
+**Lifecycle (negócio):** `created → editing → saved → finalized → cart_attached → ordered` (+ cancel / re-edit).
 
 ---
 
 ### `savePersonalization(): Promise<{ record; cart }>`
 
-Salva sessão e monta `CommerceCartPayload`.
+Salva sessão (`lifecycle: saved`) e monta `CommerceCartPayload` com `customizationId` + `lifecycleStatus`.
 
 ---
 
 ### `finalizePersonalization(): Promise<{ record; cart }>`
 
-Finaliza sessão; notifica host (`personalization:finalized`).
+Finaliza (`lifecycle: finalized`); notifica host (`personalization:finalized`).
 
 ---
 
 ### `cancelPersonalization(): Promise<PersonalizationSessionRecord>`
 
-Cancela sessão; emite `personalization:cancelled`.
+Cancela (`lifecycle: cancelled`); emite `personalization:cancelled`.
 
 ---
 
 ### `resumePersonalization(sessionId): Promise<PersonalizationSessionRecord>`
 
-Atalho para retomar (usa product placeholder interno — prefira `openPersonalization` com product completo quando possível).
+Retoma Customization / sessão (migra registros legados sem `customizationId`).
 
 ---
 
 ### `getPersonalizationSession(): PersonalizationSessionRecord | null`
 
-Sessão commerce atual ou `null`.
+Sessão commerce atual (inclui campos Customization) ou `null`.
 
 ---
 

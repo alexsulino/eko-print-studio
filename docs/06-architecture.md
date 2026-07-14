@@ -91,7 +91,8 @@ Os adapters **não** inventam JSON livre. Usam contratos em `src/types/commerce.
 | `CommerceOrderPayload` | `eko.commerce.order/1` | Meta do item no pedido |
 | `CommerceProductContext` | — | Contexto produto → editor |
 | `ProductionPreviewRef` | — | Preview leve (domain ou raster) |
-| `PersonalizationSessionRecord` | — | Ciclo de vida da sessão |
+| `PersonalizationSessionRecord` | — | Persistência de sessão (+ campos Customization) |
+| `CustomizationRecord` | `eko.customization/1` | Visão de negócio (lifecycle, revisions) |
 
 ```mermaid
 classDiagram
@@ -103,13 +104,27 @@ classDiagram
   }
   class PersonalizationSessionRecord {
     id
+    customizationId?
     status
+    lifecycle?
+    revisions?
     product
     documentId
+    preview?
+  }
+  class CustomizationRecord {
+    schema eko.customization/1
+    id
+    sessionId
+    lifecycle
+    revisions
+    masterId
   }
   class CommerceCartPayload {
     schema eko.commerce.cart/1
     sessionId
+    customizationId?
+    lifecycleStatus?
     documentJson
     preview
     summary
@@ -121,11 +136,12 @@ classDiagram
     allowAdminReedit
   }
   CommerceProductContext <-- PersonalizationSessionRecord
+  PersonalizationSessionRecord --> CustomizationRecord : migrate/view
   PersonalizationSessionRecord --> CommerceCartPayload
   CommerceCartPayload <-- CommerceOrderPayload
 ```
 
-Alterar o schema exige **versão nova** (`/2`) — não quebre lojas antigas em silêncio.
+Alterar o schema exige **versão nova** (`/2`) — não quebre lojas antigas em silêncio. Campos opcionais (`customizationId`, `lifecycleStatus`) são aditivos em `cart/1`.
 
 ---
 
@@ -136,10 +152,20 @@ O SDK/Core dependem de **interfaces**, não de arquivos no disco.
 | Provider | Papel |
 |----------|--------|
 | `DocumentProvider` | Carregar / salvar / criar sessão a partir de master |
-| `PersistenceProvider` | Persistência genérica de documento |
-| `ExportProvider` | Export PNG/PDF/SVG (quando disponível) |
+| `PersistenceProvider` / `SessionPersistenceProvider` | Persistência de documento (+ sessões) |
+| `ExportProvider` | Preview oficial / export |
+| `CommerceProvider` | Orquestração storefront (abrir, finalizar, carrinho, host) |
 
-**Quando utilizar providers customizados?** Apps embarcados, backends próprios, ou rasters de produção.
+```text
+CommerceProvider
+        │
+┌───────┴────────────┬─────────────┬──────────────┐
+WooCommerce          Shopify       Magento        Nuvemshop / …
+```
+
+O App usa `bootCommerceFromUrl` — **nunca** import direto de uma loja. Implementações concretas: `src/adapters/*` + stubs em `src/providers/commerce/stubs/`.
+
+**Quando utilizar providers customizados?** Apps embarcados, backends próprios, ou nova plataforma de comércio.
 
 > **Pendente:** provedores de produção tipográfica avançada (CMYK, imposições).
 

@@ -1,12 +1,16 @@
-import { sampleMasterTemplate } from '@/data/sampleDocuments'
 import { cloneToSession } from '@/core/document/cloneToSession'
 import { serializeDocument } from '@/core/document/serializeDocument'
 import { validateDocument } from '@/core/document/validateDocument'
+import {
+  ensureBuiltinTemplatesRegistered,
+  templateRegistry,
+} from '@/core/templates'
 import type { EkoDocument } from '@/types/document'
 import type { DocumentProvider } from '@/types/provider'
 
 /**
  * In-memory / localStorage provider for Phase 1.
+ * Masters are seeded from the official Template Registry — never from ad-hoc imports.
  * Swap for WordPress / Woo / API providers later without touching the core.
  */
 export class LocalDocumentProvider implements DocumentProvider {
@@ -18,6 +22,8 @@ export class LocalDocumentProvider implements DocumentProvider {
   }
 
   private seed(): void {
+    ensureBuiltinTemplatesRegistered()
+
     try {
       const raw = localStorage.getItem(this.storageKey)
       if (raw) {
@@ -30,10 +36,12 @@ export class LocalDocumentProvider implements DocumentProvider {
       // Ignore corrupt local cache in Phase 1.
     }
 
-    // Always re-seed the canonical sample master from code so a stale localStorage
-    // copy cannot blank the canvas (empty/invalid surface.elementIds, missing elements).
-    const master = serializeDocument(sampleMasterTemplate)
-    this.memory.set(master.id, master)
+    // Always re-seed canonical Template Masters from the registry so a stale
+    // localStorage copy cannot blank the canvas or drift from published catalogs.
+    for (const master of templateRegistry.listDocuments({ status: ['published', 'draft'] })) {
+      const clean = serializeDocument(master)
+      this.memory.set(clean.id, clean)
+    }
   }
 
   private persist(): void {

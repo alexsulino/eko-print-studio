@@ -1,0 +1,30 @@
+{
+  "schema": "eko.templates.catalog/1",
+  "generatedFrom": "src/core/templates/registerBuiltins.ts",
+  "templates": [
+    {
+      "id": "template_banner-90x120",
+      "name": "Banner 90x120",
+      "category": "Banners",
+      "status": "published"
+    },
+    {
+      "id": "template_caneca-brasil",
+      "name": "Caneca Brasil",
+      "category": "Canecas",
+      "status": "published"
+    },
+    {
+      "id": "template_cartao-premium",
+      "name": "Cartão Premium",
+      "category": "Cartões",
+      "status": "published"
+    },
+    {
+      "id": "template_flyer-a5",
+      "name": "Flyer A5",
+      "category": "Folhetos",
+      "status": "published"
+    }
+  ]
+}

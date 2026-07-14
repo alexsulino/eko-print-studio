@@ -1,4 +1,8 @@
 import type { EkoDocument } from './document'
+import type {
+  CustomizationLifecycleStatus,
+  CustomizationRevision,
+} from './customization'
 
 /**
  * Public commerce contracts — shared by SDK and all storefront adapters.
@@ -15,6 +19,12 @@ export type PersonalizationSessionStatus =
   | 'saved'
   | 'finalized'
   | 'cancelled'
+
+export type {
+  CustomizationLifecycleStatus,
+  CustomizationRecord,
+  CustomizationRevision,
+} from './customization'
 
 /** Product / line-item context passed by the host storefront. */
 export interface CommerceProductContext {
@@ -33,21 +43,38 @@ export interface CommerceProductContext {
   hostMeta?: Record<string, unknown>
 }
 
+/**
+ * Persistence record for a personalization session.
+ * Also carries Customization identity (business entity) for hosts.
+ * Migrated sessions: `customizationId === id`.
+ */
 export interface PersonalizationSessionRecord {
   id: string
+  /**
+   * Business Customization id. When absent, equals `id` (transparent migration).
+   */
+  customizationId?: string
   status: PersonalizationSessionStatus
+  /** Business lifecycle — see CustomizationLifecycleStatus. */
+  lifecycle?: CustomizationLifecycleStatus
   product: CommerceProductContext
   documentId: string
   masterId: string
   createdAt: string
   updatedAt: string
   autosaveAt?: string
+  savedAt?: string
   finalizedAt?: string
+  cartAttachedAt?: string
+  orderedAt?: string
   cancelledAt?: string
   /** Document schema version at last save. */
   schemaVersion?: string
   preview?: ProductionPreviewRef
   embedMode?: CommerceEmbedMode
+  currentRevisionId?: string
+  /** Prepared for multi-revision history (may be empty). */
+  revisions?: CustomizationRevision[]
 }
 
 /** Lightweight preview reference for cart/order (not a full document). */
@@ -60,6 +87,10 @@ export interface ProductionPreviewRef {
   heightPx: number
   generatedAt: string
   fidelity: 'domain' | 'raster'
+  /** Host artifact name — `preview.png` when fidelity is raster. */
+  filename?: string
+  /** Domain JSON companion kept when primary preview is raster (compatibility). */
+  domainData?: string
 }
 
 /**
@@ -69,6 +100,9 @@ export interface ProductionPreviewRef {
 export interface CommerceCartPayload {
   schema: 'eko.commerce.cart/1'
   sessionId: string
+  /** Business id — equals sessionId when migrated from session-only carts. */
+  customizationId?: string
+  lifecycleStatus?: CustomizationLifecycleStatus
   documentId: string
   masterId: string
   product: CommerceProductContext

@@ -5,6 +5,8 @@ if (!defined('ABSPATH')) {
 	return;
 }
 
+use EkoPrintStudio\Services\PreviewPresenter;
+
 /** @var string $session_id */
 /** @var string $template_id */
 /** @var string $version */
@@ -13,6 +15,15 @@ if (!defined('ABSPATH')) {
 /** @var array<string,mixed> $preview */
 /** @var int $order_id */
 /** @var int $item_id */
+
+$is_raster = PreviewPresenter::is_raster($preview);
+$document_name = '';
+if (!empty($preview['domainData']) && is_string($preview['domainData'])) {
+	$decoded = json_decode($preview['domainData'], true);
+	if (is_array($decoded) && !empty($decoded['metadata']['name'])) {
+		$document_name = (string) $decoded['metadata']['name'];
+	}
+}
 ?>
 <div class="eko-ps-order-panel">
 	<strong><?php esc_html_e('Eko Print Studio', 'eko-print-studio'); ?></strong>
@@ -22,11 +33,17 @@ if (!defined('ABSPATH')) {
 		<li><?php esc_html_e('Versão:', 'eko-print-studio'); ?> <code><?php echo esc_html($version); ?></code></li>
 		<li><?php esc_html_e('Salvo em:', 'eko-print-studio'); ?> <?php echo esc_html($saved_at); ?></li>
 		<li><?php esc_html_e('Status:', 'eko-print-studio'); ?> <?php echo esc_html($status); ?></li>
+		<?php if ($document_name !== '') : ?>
+			<li><?php esc_html_e('Arte:', 'eko-print-studio'); ?> <?php echo esc_html($document_name); ?></li>
+		<?php endif; ?>
 	</ul>
-	<?php if (!empty($preview['data']) && (str_starts_with((string) $preview['data'], 'data:image') || str_contains((string) ($preview['mimeType'] ?? ''), 'image'))) : ?>
-		<p><img src="<?php echo esc_url((string) $preview['data']); ?>" alt="" style="max-width:120px;height:auto;border:1px solid #ddd;" /></p>
+	<?php if ($is_raster) : ?>
+		<p class="eko-ps-order-preview">
+			<?php echo PreviewPresenter::img_html($preview, 'eko-ps-order-thumb', 140); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+		</p>
+		<p class="description"><?php esc_html_e('Miniatura oficial (preview.png) — sem regeneração no admin.', 'eko-print-studio'); ?></p>
 	<?php else : ?>
-		<p class="description"><?php esc_html_e('Preview de domínio disponível via SDK generateProductionPreview().', 'eko-print-studio'); ?></p>
+		<p class="description"><?php esc_html_e('Preview legado (domínio). Pedidos novos incluem preview.png raster.', 'eko-print-studio'); ?></p>
 	<?php endif; ?>
 	<p>
 		<button

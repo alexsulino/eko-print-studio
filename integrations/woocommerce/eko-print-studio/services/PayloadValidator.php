@@ -71,9 +71,19 @@ final class PayloadValidator {
 			}
 		}
 
+		$session_id = sanitize_text_field((string) $data['sessionId']);
+		$customization_id = sanitize_text_field((string) ($data['customizationId'] ?? $session_id));
+		$lifecycle = sanitize_text_field((string) ($data['lifecycleStatus'] ?? 'finalized'));
+		$allowed_lifecycle = ['created', 'editing', 'saved', 'finalized', 'cart_attached', 'ordered', 'cancelled'];
+		if (!in_array($lifecycle, $allowed_lifecycle, true)) {
+			$lifecycle = 'finalized';
+		}
+
 		return [
-			'schema'       => self::CART_SCHEMA,
-			'sessionId'    => sanitize_text_field((string) $data['sessionId']),
+			'schema'            => self::CART_SCHEMA,
+			'sessionId'         => $session_id,
+			'customizationId'   => $customization_id !== '' ? $customization_id : $session_id,
+			'lifecycleStatus'   => $lifecycle,
 			'documentId'   => sanitize_text_field((string) $data['documentId']),
 			'masterId'     => sanitize_text_field((string) $data['masterId']),
 			'product'      => [
@@ -96,6 +106,8 @@ final class PayloadValidator {
 				'heightPx'    => (int) ($preview['heightPx'] ?? 0),
 				'generatedAt' => sanitize_text_field((string) ($preview['generatedAt'] ?? '')),
 				'fidelity'    => sanitize_text_field((string) ($preview['fidelity'] ?? 'domain')),
+				'filename'    => sanitize_file_name((string) ($preview['filename'] ?? '')),
+				'domainData'  => isset($preview['domainData']) ? (string) $preview['domainData'] : '',
 			],
 			'savedAt'      => sanitize_text_field((string) $data['savedAt']),
 			'summary'      => [

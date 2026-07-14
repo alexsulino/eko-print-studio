@@ -2,31 +2,37 @@ import type { EkoDocument } from '@/types/document'
 import type { ProductionPreviewRef } from '@/types/commerce'
 import { exportDocument } from '@/core/document/serializeDocument'
 import { getDocumentPixelSize } from '@/core/document/units'
+import { RasterExportProvider } from '@/providers/export/RasterExportProvider'
 
 /**
- * Production preview — domain-faithful snapshot for commerce flows.
- * Raster/PDF ExportProvider can replace `data` later without changing the contract.
+ * @deprecated Prefer `DomainExportProvider.createSessionPreview` / `ExportProvider`.
+ * Sync domain snapshot kept for older call sites.
  */
 export function buildProductionPreview(document: EkoDocument): ProductionPreviewRef {
   const size = getDocumentPixelSize(document.canvas)
+  const data = exportDocument(document)
   return {
     format: 'json',
     mimeType: 'application/json',
-    data: exportDocument(document),
+    data,
     widthPx: size.widthPx,
     heightPx: size.heightPx,
     generatedAt: new Date().toISOString(),
     fidelity: 'domain',
+    domainData: data,
   }
 }
 
 /**
- * Optional raster preview when an ExportProvider is available on the host.
+ * @deprecated Prefer `RasterExportProvider` / `CompositeExportProvider.createSessionPreview`.
  */
 export async function buildRasterPreview(
   document: EkoDocument,
-  exportFn: (doc: EkoDocument) => Promise<{ mimeType: string; data: ArrayBuffer | string }>,
+  exportFn?: (doc: EkoDocument) => Promise<{ mimeType: string; data: ArrayBuffer | string }>,
 ): Promise<ProductionPreviewRef> {
+  if (!exportFn) {
+    return new RasterExportProvider().createSessionPreview(document)
+  }
   const size = getDocumentPixelSize(document.canvas)
   const exported = await exportFn(document)
   const data =
@@ -41,6 +47,8 @@ export async function buildRasterPreview(
     heightPx: size.heightPx,
     generatedAt: new Date().toISOString(),
     fidelity: 'raster',
+    filename: 'preview.png',
+    domainData: exportDocument(document),
   }
 }
 
@@ -52,7 +60,6 @@ function arrayBufferToBase64DataUrl(buffer: ArrayBuffer, mimeType: string): stri
     typeof btoa === 'function'
       ? btoa
       : (value: string) => {
-          // Environment without btoa (unit tests) — reversible ASCII→base64-ish stable stub.
           const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
           let out = ''
           for (let i = 0; i < value.length; i += 3) {

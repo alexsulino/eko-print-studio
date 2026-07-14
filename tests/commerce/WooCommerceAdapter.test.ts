@@ -1,10 +1,10 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { EkoPrintStudio, platformEvents } from '@/sdk/EkoPrintStudio'
-import { WooCommerceAdapter } from '@/adapters/woocommerce'
+import { WooCommerceAdapter, WooCommerceCommerceProvider } from '@/adapters/woocommerce'
 import { localDocumentProvider } from '@/providers/LocalDocumentProvider'
 import { LocalPersistenceProvider } from '@/providers/LocalPersistenceProvider'
-import { InMemorySessionStore } from '@/sdk/commerce/PersonalizationSessionManager'
-import { SAMPLE_MASTER_ID } from '@/data/sampleDocuments'
+import { createSessionExport } from '@/providers/export'
+import { SAMPLE_MASTER_ID } from '@/core/templates'
 import { historyEngine } from '@/core/history/HistoryEngine'
 import { eventBus } from '@/core/events/EventBus'
 import type { CommerceProductContext } from '@/types/commerce'
@@ -26,11 +26,12 @@ describe('v0.8 Commerce — personalization + WooCommerce adapter', () => {
   beforeEach(() => {
     historyEngine.clear()
     eventBus.clear()
-    const sessionStore = new InMemorySessionStore()
     editor = new EkoPrintStudio({
       documentProvider: localDocumentProvider,
-      providers: { persistence: new LocalPersistenceProvider('eko-test-persistence') },
-      sessionStore,
+      providers: {
+        persistence: new LocalPersistenceProvider('eko-test-persistence'),
+        export: createSessionExport({ includeRaster: true }),
+      },
     })
     adapter = new WooCommerceAdapter({ editor, defaultEmbedMode: 'modal' })
   })
@@ -55,7 +56,9 @@ describe('v0.8 Commerce — personalization + WooCommerce adapter', () => {
     expect(cart.schema).toBe('eko.commerce.cart/1')
     expect(cart.product.sku).toBe('MUG-BR')
     expect(cart.documentJson).toContain('"type": "session"')
-    expect(cart.preview.fidelity).toBe('domain')
+    expect(cart.preview.fidelity).toBe('raster')
+    expect(cart.preview.filename).toBe('preview.png')
+    expect(cart.preview.domainData).toBeTruthy()
     expect(cart.summary.elementCount).toBeGreaterThan(0)
 
     const wooMeta = adapter.toWooCartMeta(cart)
@@ -92,13 +95,17 @@ describe('v0.8 Commerce — personalization + WooCommerce adapter', () => {
     expect(record?.preview).toBeTruthy()
   })
 
-  it('WooCommerceAdapter imports only SDK and public types', async () => {
+  it('WooCommerceAdapter is a thin façade over WooCommerceCommerceProvider', () => {
+    expect(adapter.asCommerceProvider()).toBeInstanceOf(WooCommerceCommerceProvider)
+    expect(adapter.asCommerceProvider().platform).toBe('woocommerce')
+  })
+
+  it('WooCommerceCommerceProvider may import platform contracts only — not Core engines', async () => {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
-    const file = path.join(process.cwd(), 'src/adapters/woocommerce/WooCommerceAdapter.ts')
+    const file = path.join(process.cwd(), 'src/adapters/woocommerce/WooCommerceCommerceProvider.ts')
     const source = await fs.readFile(file, 'utf8')
-    const importLines = source.split('\n').filter((line) => /^\s*import\s/.test(line))
-    expect(importLines.every((line) => !line.includes('@/core'))).toBe(true)
-    expect(importLines.some((line) => line.includes('@/sdk') || line.includes('@/types'))).toBe(true)
+    expect(source).toContain('HostCommerceProvider')
+    expect(source).not.toMatch(/from ['"]@\/core\/(?!platform)/)
   })
 })
