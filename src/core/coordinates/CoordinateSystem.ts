@@ -7,10 +7,22 @@ export interface DocumentPoint {
   space: 'document'
 }
 
+export interface WorkspacePoint {
+  x: number
+  y: number
+  space: 'workspace'
+}
+
 export interface ViewportPoint {
   x: number
   y: number
   space: 'viewport'
+}
+
+export interface ScreenPoint {
+  x: number
+  y: number
+  space: 'screen'
 }
 
 export interface RegionPoint {
@@ -20,12 +32,57 @@ export interface RegionPoint {
   regionId: string
 }
 
+export type CoordinatePoint =
+  | DocumentPoint
+  | WorkspacePoint
+  | ViewportPoint
+  | ScreenPoint
+  | RegionPoint
+
 /**
- * Coordinate System — isolates document / viewport / region spaces.
- * Never mixes Konva node coordinates into the domain model.
+ * Page (or surface) origin inside workspace world space.
+ * When origin is (0,0), document ↔ workspace are identical (single-page compat).
+ */
+export interface WorkspaceOrigin {
+  x: number
+  y: number
+}
+
+/**
+ * Coordinate System — single conversion hub for document / workspace / viewport / screen / region.
+ * ViewportManager and engines must call this instead of duplicating zoom/pan math.
+ *
+ * Spaces:
+ * - document — local page/surface content (elements live here)
+ * - workspace — infinite pasteboard; pages placed with origins
+ * - viewport — stage-local after zoom/pan (same as screen for full-bleed stage)
+ * - screen — alias of viewport when stage fills the canvas shell
+ * - region — local to a DocumentRegion
  */
 export class CoordinateSystem {
-  static documentToViewport(
+  static documentToWorkspace(
+    point: { x: number; y: number },
+    origin: WorkspaceOrigin = { x: 0, y: 0 },
+  ): WorkspacePoint {
+    return {
+      space: 'workspace',
+      x: point.x + origin.x,
+      y: point.y + origin.y,
+    }
+  }
+
+  static workspaceToDocument(
+    point: { x: number; y: number },
+    origin: WorkspaceOrigin = { x: 0, y: 0 },
+  ): DocumentPoint {
+    return {
+      space: 'document',
+      x: point.x - origin.x,
+      y: point.y - origin.y,
+    }
+  }
+
+  static workspaceToViewport(
     point: { x: number; y: number },
     viewport: Pick<ViewportState, 'zoom' | 'panX' | 'panY'>,
   ): ViewportPoint {
@@ -36,15 +93,65 @@ export class CoordinateSystem {
     }
   }
 
-  static viewportToDocument(
+  static viewportToWorkspace(
     point: { x: number; y: number },
     viewport: Pick<ViewportState, 'zoom' | 'panX' | 'panY'>,
-  ): DocumentPoint {
+  ): WorkspacePoint {
     return {
-      space: 'document',
+      space: 'workspace',
       x: (point.x - viewport.panX) / viewport.zoom,
       y: (point.y - viewport.panY) / viewport.zoom,
     }
+  }
+
+  /** Document → viewport via workspace origin (compat: origin 0,0 = legacy path). */
+  static documentToViewport(
+    point: { x: number; y: number },
+    viewport: Pick<ViewportState, 'zoom' | 'panX' | 'panY'>,
+    origin: WorkspaceOrigin = { x: 0, y: 0 },
+  ): ViewportPoint {
+    const world = CoordinateSystem.documentToWorkspace(point, origin)
+    return CoordinateSystem.workspaceToViewport(world, viewport)
+  }
+
+  static viewportToDocument(
+    point: { x: number; y: number },
+    viewport: Pick<ViewportState, 'zoom' | 'panX' | 'panY'>,
+    origin: WorkspaceOrigin = { x: 0, y: 0 },
+  ): DocumentPoint {
+    const world = CoordinateSystem.viewportToWorkspace(point, viewport)
+    return CoordinateSystem.workspaceToDocument(world, origin)
+  }
+
+  /** Screen space equals viewport for the full-bleed Konva stage. */
+  static viewportToScreen(point: { x: number; y: number }): ScreenPoint {
+    return { space: 'screen', x: point.x, y: point.y }
+  }
+
+  static screenToViewport(point: { x: number; y: number }): ViewportPoint {
+    return { space: 'viewport', x: point.x, y: point.y }
+  }
+
+  static documentToScreen(
+    point: { x: number; y: number },
+    viewport: Pick<ViewportState, 'zoom' | 'panX' | 'panY'>,
+    origin: WorkspaceOrigin = { x: 0, y: 0 },
+  ): ScreenPoint {
+    return CoordinateSystem.viewportToScreen(
+      CoordinateSystem.documentToViewport(point, viewport, origin),
+    )
+  }
+
+  static screenToDocument(
+    point: { x: number; y: number },
+    viewport: Pick<ViewportState, 'zoom' | 'panX' | 'panY'>,
+    origin: WorkspaceOrigin = { x: 0, y: 0 },
+  ): DocumentPoint {
+    return CoordinateSystem.viewportToDocument(
+      CoordinateSystem.screenToViewport(point),
+      viewport,
+      origin,
+    )
   }
 
   static documentToRegion(

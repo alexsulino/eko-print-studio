@@ -1,7 +1,8 @@
 import type { EkoDocument } from '@/types/document'
 import type { EkoElement } from '@/types/element'
-import type { SnapConfig, SnapGuide } from '@/types/interaction'
-import { DEFAULT_SNAP_CONFIG } from '@/types/interaction'
+import type { EditorGuide } from '@/types/layout'
+import type { SnapConfig, SnapGuide, SnapGuideKind, SnapPriority } from '@/types/interaction'
+import { DEFAULT_SNAP_CONFIG, DEFAULT_SNAP_PRIORITIES } from '@/types/interaction'
 import { getDocumentPixelSize, toPixels } from '@/core/document/units'
 
 export interface SnapTarget {
@@ -24,14 +25,20 @@ export interface SnapResult {
   guides: SnapGuide[]
 }
 
+export interface SnapCollectOptions {
+  persistentGuides?: EditorGuide[]
+}
+
 /**
- * Snapping Engine — guides derived from EkoDocument (edges, center, objects, margin, safe, bleed).
+ * Snapping Engine — guides derived from EkoDocument (edges, center, objects,
+ * margin, safe, bleed, grid, persistent guides) with configurable priority.
  */
 export class SnappingEngine {
   static collectTargets(
     document: EkoDocument,
     movingIds: string[],
     config: SnapConfig = DEFAULT_SNAP_CONFIG,
+    options: SnapCollectOptions = {},
   ): SnapTarget[] {
     if (!config.enabled) return []
 
@@ -107,6 +114,26 @@ export class SnappingEngine {
       }
     }
 
+    if (config.grid && config.gridSizePx > 0) {
+      const step = config.gridSizePx
+      for (let x = 0; x <= widthPx; x += step) {
+        targets.push({ orientation: 'vertical', position: x, kind: 'grid' })
+      }
+      for (let y = 0; y <= heightPx; y += step) {
+        targets.push({ orientation: 'horizontal', position: y, kind: 'grid' })
+      }
+    }
+
+    if (config.persistentGuides && options.persistentGuides?.length) {
+      for (const guide of options.persistentGuides) {
+        targets.push({
+          orientation: guide.orientation,
+          position: guide.position,
+          kind: 'guide',
+        })
+      }
+    }
+
     return targets
   }
 
@@ -120,19 +147,28 @@ export class SnappingEngine {
     }
 
     const threshold = config.thresholdPx
+    const priorities = config.priorities?.length ? config.priorities : DEFAULT_SNAP_PRIORITIES
     const pointsX = [box.x, box.x + box.width / 2, box.x + box.width]
     const pointsY = [box.y, box.y + box.height / 2, box.y + box.height]
 
-    let bestDx: { delta: number; guide: SnapGuide } | null = null
-    let bestDy: { delta: number; guide: SnapGuide } | null = null
+    let bestDx: { delta: number; guide: SnapGuide; priority: number } | null = null
+    let bestDy: { delta: number; guide: SnapGuide; priority: number } | null = null
 
     for (const target of targets) {
+      const priority = priorityIndex(priorities, target.kind)
       if (target.orientation === 'vertical') {
         for (const px of pointsX) {
           const delta = target.position - px
-          if (Math.abs(delta) <= threshold && (!bestDx || Math.abs(delta) < Math.abs(bestDx.delta))) {
+          const abs = Math.abs(delta)
+          if (abs > threshold) continue
+          if (
+            !bestDx ||
+            abs < Math.abs(bestDx.delta) - 0.01 ||
+            (nearlyEqual(abs, Math.abs(bestDx.delta)) && priority < bestDx.priority)
+          ) {
             bestDx = {
               delta,
+              priority,
               guide: { orientation: 'vertical', position: target.position, kind: target.kind },
             }
           }
@@ -140,9 +176,16 @@ export class SnappingEngine {
       } else {
         for (const py of pointsY) {
           const delta = target.position - py
-          if (Math.abs(delta) <= threshold && (!bestDy || Math.abs(delta) < Math.abs(bestDy.delta))) {
+          const abs = Math.abs(delta)
+          if (abs > threshold) continue
+          if (
+            !bestDy ||
+            abs < Math.abs(bestDy.delta) - 0.01 ||
+            (nearlyEqual(abs, Math.abs(bestDy.delta)) && priority < bestDy.priority)
+          ) {
             bestDy = {
               delta,
+              priority,
               guide: { orientation: 'horizontal', position: target.position, kind: target.kind },
             }
           }
@@ -150,15 +193,61 @@ export class SnappingEngine {
       }
     }
 
+    const x = box.x + (bestDx?.delta ?? 0)
+    const y = box.y + (bestDy?.delta ?? 0)
+
     const guides: SnapGuide[] = []
     if (bestDx) guides.push(bestDx.guide)
     if (bestDy) guides.push(bestDy.guide)
 
-    return {
-      x: box.x + (bestDx?.delta ?? 0),
-      y: box.y + (bestDy?.delta ?? 0),
-      guides,
+    return { x, y, guides }
+  }
+
+  /**
+   * Equal-gap spacing guides vs neighboring objects (Canva-style).
+   * Pure detection — does not mutate position.
+   */
+  static detectSpacingGuides(
+    box: SnapInputBox,
+    others: SnapInputBox[],
+    thresholdPx = 6,
+  ): SnapGuide[] {
+    const guides: SnapGuide[] = []
+    const gapsX: Array<{ gap: number; edge: number }> = []
+    const gapsY: Array<{ gap: number; edge: number }> = []
+
+    for (const other of others) {
+      const gapRight = other.x - (box.x + box.width)
+      if (gapRight > 0) gapsX.push({ gap: gapRight, edge: box.x + box.width })
+      const gapLeft = box.x - (other.x + other.width)
+      if (gapLeft > 0) gapsX.push({ gap: gapLeft, edge: other.x + other.width })
+
+      const gapBelow = other.y - (box.y + box.height)
+      if (gapBelow > 0) gapsY.push({ gap: gapBelow, edge: box.y + box.height })
+      const gapAbove = box.y - (other.y + other.height)
+      if (gapAbove > 0) gapsY.push({ gap: gapAbove, edge: other.y + other.height })
     }
+
+    const matchX = findEqualGapPair(gapsX, thresholdPx)
+    if (matchX) {
+      guides.push({
+        orientation: 'vertical',
+        position: matchX.edge + matchX.gap / 2,
+        kind: 'spacing',
+        spacing: matchX.gap,
+      })
+    }
+    const matchY = findEqualGapPair(gapsY, thresholdPx)
+    if (matchY) {
+      guides.push({
+        orientation: 'horizontal',
+        position: matchY.edge + matchY.gap / 2,
+        kind: 'spacing',
+        spacing: matchY.gap,
+      })
+    }
+
+    return guides
   }
 }
 
@@ -170,4 +259,30 @@ function elementBox(el: EkoElement): SnapInputBox {
     width: Math.abs(el.transform.width * el.transform.scaleX),
     height: Math.abs(el.transform.height * el.transform.scaleY),
   }
+}
+
+function priorityIndex(priorities: SnapPriority[], kind: SnapGuideKind): number {
+  const idx = priorities.indexOf(kind)
+  return idx === -1 ? priorities.length : idx
+}
+
+function nearlyEqual(a: number, b: number, eps = 0.5): boolean {
+  return Math.abs(a - b) <= eps
+}
+
+function findEqualGapPair(
+  gaps: Array<{ gap: number; edge: number }>,
+  thresholdPx: number,
+): { gap: number; edge: number } | null {
+  if (gaps.length < 2) return null
+  for (let i = 0; i < gaps.length; i++) {
+    for (let j = i + 1; j < gaps.length; j++) {
+      const a = gaps[i]!
+      const b = gaps[j]!
+      if (Math.abs(a.gap - b.gap) <= thresholdPx && a.gap > 1) {
+        return a
+      }
+    }
+  }
+  return null
 }

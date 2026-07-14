@@ -50,6 +50,34 @@ describe('ViewportManager zoomIn/Out center stability', () => {
     expect(viaIn.panX).toBeCloseTo(viaAt.panX, 5)
     expect(viaIn.panY).toBeCloseTo(viaAt.panY, 5)
   })
+
+  it('fitToBounds centers the rect and scales to fit', () => {
+    const vp = new ViewportManager()
+    vp.setStageSize(800, 600)
+    const next = vp.fitToBounds({ x: 100, y: 50, width: 200, height: 100 }, 0)
+    expect(next.zoom).toBeCloseTo(Math.min(800 / 200, 600 / 100, 4), 5)
+    const cx = 100 + 100
+    const cy = 50 + 50
+    expect((400 - next.panX) / next.zoom).toBeCloseTo(cx, 5)
+    expect((300 - next.panY) / next.zoom).toBeCloseTo(cy, 5)
+  })
+
+  it('computeZoomAtToggle preserves cursor document point', () => {
+    const vp = new ViewportManager()
+    vp.setStageSize(800, 600)
+    vp.setZoom(0.5)
+    vp.setPan(100, 80)
+    const screenX = 400
+    const screenY = 300
+    const before = {
+      x: (screenX - 100) / 0.5,
+      y: (screenY - 80) / 0.5,
+    }
+    const target = vp.computeZoomAtToggle(screenX, screenY, 1.5)
+    expect(target.zoom).toBeCloseTo(1.5, 5)
+    expect((screenX - target.panX) / target.zoom).toBeCloseTo(before.x, 5)
+    expect((screenY - target.panY) / target.zoom).toBeCloseTo(before.y, 5)
+  })
 })
 
 describe('Hit graph — non-selectable guides must not listen', () => {

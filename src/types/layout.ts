@@ -105,7 +105,23 @@ export interface EditorGuide {
   /** Position in document pixel space. */
   position: number
   locked?: boolean
+  /** When false, guide is hidden but may still snap if engine includes hidden. */
+  visible?: boolean
   label?: string
+  /**
+   * Page scope for multi-page shared guides prep.
+   * `null` / omitted = document-global guide.
+   */
+  pageId?: string | null
+}
+
+/** Print / safe layout bounds in document pixels (independent of Konva). */
+export interface LayoutBounds {
+  printable: { x: number; y: number; width: number; height: number }
+  safe: { x: number; y: number; width: number; height: number } | null
+  bleed: { x: number; y: number; width: number; height: number } | null
+  margin: { x: number; y: number; width: number; height: number } | null
+  crop: { x: number; y: number; width: number; height: number }
 }
 
 /** Prepared element lifecycle states (visual wiring is future work). */

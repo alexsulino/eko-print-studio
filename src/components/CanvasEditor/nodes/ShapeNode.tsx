@@ -15,6 +15,7 @@ function ShapeNodeComponent({
   listening = true,
   interactionCursor,
   onSelect,
+  onHover,
   onDragMove,
   onDragEnd,
   nodeRef,
@@ -34,12 +35,14 @@ function ShapeNodeComponent({
     listening,
     visible: element.visible,
     onMouseEnter: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      onHover?.(element.id)
       const stage = e.target.getStage()
       if (stage && interactionCursor) {
         stage.container().style.cursor = interactionCursor
       }
     },
     onMouseLeave: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      onHover?.(null)
       const stage = e.target.getStage()
       if (stage) stage.container().style.cursor = 'default'
     },

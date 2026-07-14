@@ -3,6 +3,7 @@ import type Konva from 'konva'
 import type { EkoElement } from '@/types/element'
 import { templateRulesEngine } from '@/core/rules/TemplateRulesEngine'
 import { LayerEngine } from '@/core/layers/LayerEngine'
+import { objectRegistry } from '@/core/registry/ObjectRegistry'
 import type { EkoDocument } from '@/types/document'
 import { recordReactRender } from '@/diagnostics/dragProfiler'
 import { isProtectedElement } from '@/editor/layers/protectedElement'
@@ -13,6 +14,7 @@ import { ShapeNode } from './nodes/ShapeNode'
 interface ObjectLayerProps {
   document: EkoDocument
   onSelect: (id: string, modifiers: { ctrlKey: boolean; shiftKey: boolean; metaKey: boolean }) => void
+  onHover?: (id: string | null) => void
   onDragMove: (id: string, x: number, y: number) => { x: number; y: number }
   onDragEnd: (id: string, x: number, y: number) => void
   onEditStart?: (id: string) => void
@@ -25,6 +27,7 @@ interface ObjectLayerProps {
 export function ObjectLayer({
   document,
   onSelect,
+  onHover,
   onDragMove,
   onDragEnd,
   onEditStart,
@@ -53,6 +56,7 @@ export function ObjectLayer({
             document={document}
             effectivelyLocked={flags.locked}
             onSelect={onSelect}
+            onHover={onHover}
             onDragMove={onDragMove}
             onDragEnd={onDragEnd}
             onEditStart={onEditStart}
@@ -71,6 +75,7 @@ interface ElementRendererProps {
   document: EkoDocument
   effectivelyLocked: boolean
   onSelect: ObjectLayerProps['onSelect']
+  onHover?: ObjectLayerProps['onHover']
   onDragMove: ObjectLayerProps['onDragMove']
   onDragEnd: ObjectLayerProps['onDragEnd']
   onEditStart?: ObjectLayerProps['onEditStart']
@@ -84,6 +89,7 @@ const ElementRenderer = memo(function ElementRenderer({
   document,
   effectivelyLocked,
   onSelect,
+  onHover,
   onDragMove,
   onDragEnd,
   onEditStart,
@@ -111,6 +117,14 @@ const ElementRenderer = memo(function ElementRenderer({
     [canSelect, onSelect],
   )
 
+  const handleHover = useCallback(
+    (id: string | null) => {
+      if (!canSelect && id) return
+      onHover?.(id)
+    },
+    [canSelect, onHover],
+  )
+
   const handleEditStart = useCallback(
     (id: string) => {
       onEditStart?.(id)
@@ -123,22 +137,43 @@ const ElementRenderer = memo(function ElementRenderer({
     /** Non-selectable nodes must not steal the hit graph (system guides, locked chrome). */
     listening: listening && canSelect,
     suppressPaint: Boolean(suppressPaint),
-    interactionCursor:
-      canSelect && (!canMove || isProtectedElement(element)) ? 'not-allowed' : undefined,
+    interactionCursor: !canSelect
+      ? undefined
+      : isProtectedElement(element) || !canMove
+        ? 'not-allowed'
+        : 'move',
     onSelect: handleSelect,
+    onHover: handleHover,
     onEditStart: handleEditStart,
     onDragMove,
     onDragEnd,
     nodeRef,
   }
 
-  switch (element.type) {
+  switch (objectRegistry.rendererKey(element.type)) {
     case 'text':
-      return <TextNode element={element} {...common} />
+      // Variable elements also map to the text renderer key.
+      if (element.type === 'text') {
+        return <TextNode element={element} {...common} />
+      }
+      return null
     case 'image':
-      return <ImageNode element={element} {...common} />
+      if (element.type === 'image') {
+        return <ImageNode element={element} {...common} />
+      }
+      return null
     case 'shape':
-      return <ShapeNode element={element} {...common} />
+      if (element.type === 'shape') {
+        return <ShapeNode element={element} {...common} />
+      }
+      return null
+    case 'group':
+    case 'frame':
+    case 'table':
+    case 'stub':
+    case 'none':
+      // Domain + RenderPipeline descriptors ready; Konva nodes land with dedicated UI.
+      return null
     default:
       return null
   }
@@ -153,6 +188,7 @@ function elementRendererEqual(prev: ElementRendererProps, next: ElementRendererP
     prev.suppressPaint === next.suppressPaint &&
     prev.nodeRef === next.nodeRef &&
     prev.onSelect === next.onSelect &&
+    prev.onHover === next.onHover &&
     prev.onEditStart === next.onEditStart &&
     prev.onDragMove === next.onDragMove &&
     prev.onDragEnd === next.onDragEnd

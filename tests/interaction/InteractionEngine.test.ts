@@ -29,6 +29,12 @@ describe('SelectionEngine', () => {
     )
     expect(ids).toEqual(['a'])
   })
+
+  it('applies marquee modifiers for add and toggle', () => {
+    expect(SelectionEngine.applyMarquee(['a'], ['b'], { shiftKey: true })).toEqual(['a', 'b'])
+    expect(SelectionEngine.applyMarquee(['a', 'b'], ['b'], { ctrlKey: true })).toEqual(['a'])
+    expect(SelectionEngine.applyMarquee(['a'], ['b', 'c'], {})).toEqual(['b', 'c'])
+  })
 })
 
 describe('ClipboardEngine', () => {
@@ -41,6 +47,43 @@ describe('ClipboardEngine', () => {
     expect(pasted).toHaveLength(1)
     expect(pasted[0]!.id).not.toBe(photo.id)
     expect(pasted[0]!.transform.x).toBe(photo.transform.x + 24)
+  })
+
+  it('cut writes the same clipboard payload as copy', () => {
+    const session = cloneToSession(sampleMasterTemplate)
+    const photo = session.elements.find((el) => el.slug === 'customer-photo')!
+    const engine = new ClipboardEngine()
+    const payload = engine.cut([photo])
+    expect(payload.elements).toHaveLength(1)
+    expect(engine.hasContent()).toBe(true)
+  })
+
+  it('remaps parent ids when cloning related elements', () => {
+    const session = cloneToSession(sampleMasterTemplate)
+    const photo = session.elements.find((el) => el.slug === 'customer-photo')!
+    const child = {
+      ...structuredClone(photo),
+      id: 'child-el',
+      parentId: photo.id,
+      transform: { ...photo.transform, x: photo.transform.x + 10 },
+    }
+    const engine = new ClipboardEngine()
+    const clones = engine.cloneElements([photo, child as typeof photo])
+    expect(clones).toHaveLength(2)
+    expect(clones[0]!.id).not.toBe(photo.id)
+    expect(clones[1]!.parentId).toBe(clones[0]!.id)
+  })
+
+  it('serializes payload for OS clipboard prep', () => {
+    const session = cloneToSession(sampleMasterTemplate)
+    const photo = session.elements.find((el) => el.slug === 'customer-photo')!
+    const engine = new ClipboardEngine()
+    engine.copy([photo])
+    const json = engine.serializeForSystem()
+    expect(json).toContain('eko-print-studio')
+    const other = new ClipboardEngine()
+    expect(other.loadFromSystem(json!)).toBe(true)
+    expect(other.hasContent()).toBe(true)
   })
 })
 
@@ -76,8 +119,27 @@ describe('KeyboardEngine', () => {
     expect(del).toEqual({ type: 'delete' })
     const copy = KeyboardEngine.resolve({ key: 'c', ctrlKey: true, metaKey: false, shiftKey: false })
     expect(copy).toEqual({ type: 'copy' })
+    const cut = KeyboardEngine.resolve({ key: 'x', ctrlKey: true, metaKey: false, shiftKey: false })
+    expect(cut).toEqual({ type: 'cut' })
+    const zoomSel = KeyboardEngine.resolve({ key: '2', ctrlKey: true, metaKey: false, shiftKey: false })
+    expect(zoomSel).toEqual({ type: 'zoomToSelection' })
     const nudge = KeyboardEngine.resolve({ key: 'ArrowRight', ctrlKey: false, metaKey: false, shiftKey: true })
     expect(nudge).toEqual({ type: 'nudge', dx: 10, dy: 0 })
+    const align = KeyboardEngine.resolve({
+      key: 'ArrowLeft',
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: true,
+      altKey: true,
+    })
+    expect(align).toEqual({ type: 'align', mode: 'left' })
+    const diagnostics = KeyboardEngine.resolve({
+      key: 'd',
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+    })
+    expect(diagnostics).toEqual({ type: 'toggleDiagnostics' })
   })
 })
 

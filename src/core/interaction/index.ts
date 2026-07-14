@@ -3,11 +3,15 @@ import { ClipboardEngine, clipboardEngine } from '@/core/clipboard/ClipboardEngi
 import { SnappingEngine } from '@/core/snapping/SnappingEngine'
 import { TransformerEngine } from '@/core/transformer/TransformerEngine'
 import { KeyboardEngine } from '@/core/keyboard/KeyboardEngine'
+import { GuidesEngine, guidesEngine } from '@/core/guides/GuidesEngine'
+import { AlignmentGuides } from '@/core/alignment/AlignmentGuides'
 import { viewportManager } from '@/core/viewport/ViewportManager'
 
 /**
  * Interaction Engine facade — composition root for interaction modules.
  * UI → Interaction Engine → Commands → Rules → Store → History → Renderer
+ *
+ * Domain engines live under `src/core/*`. Do not duplicate under `src/editor/engines/`.
  */
 export const InteractionEngine = {
   selection: SelectionEngine,
@@ -17,6 +21,9 @@ export const InteractionEngine = {
   transformer: TransformerEngine,
   keyboard: KeyboardEngine,
   viewport: viewportManager,
+  guides: guidesEngine,
+  GuidesEngine,
+  alignment: AlignmentGuides,
 }
 
 export {
@@ -26,4 +33,7 @@ export {
   SnappingEngine,
   TransformerEngine,
   KeyboardEngine,
+  GuidesEngine,
+  guidesEngine,
+  AlignmentGuides,
 }

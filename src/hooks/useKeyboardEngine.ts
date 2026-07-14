@@ -1,11 +1,26 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { KeyboardEngine } from '@/core/keyboard/KeyboardEngine'
 import { useEditorStore } from '@/store/editorStore'
 
+type DiagnosticsBridge = {
+  toggle?: () => void
+}
+
+const diagnosticsBridge: DiagnosticsBridge = {}
+
+/** Allows App to register diagnostics toggle without owning editor shortcuts. */
+export function registerDiagnosticsToggle(toggle: (() => void) | null) {
+  diagnosticsBridge.toggle = toggle ?? undefined
+}
+
 /**
  * Binds global shortcuts → store actions (Commands / viewport / selection).
+ * No React component should attach its own editor shortcut listeners.
  */
 export function useKeyboardEngine(enabled = true) {
+  const diagnosticsRef = useRef(diagnosticsBridge)
+  diagnosticsRef.current = diagnosticsBridge
+
   useEffect(() => {
     if (!enabled) return
 
@@ -26,6 +41,14 @@ export function useKeyboardEngine(enabled = true) {
             mode: store.interaction.mode === 'panning' ? 'panning' : store.interaction.mode,
           })
           return
+        case 'keepRatio':
+          event.preventDefault()
+          store.setInteraction({ keepRatio: true })
+          return
+        case 'toggleDiagnostics':
+          event.preventDefault()
+          diagnosticsRef.current.toggle?.()
+          return
         case 'delete':
           event.preventDefault()
           store.deleteSelected()
@@ -38,6 +61,7 @@ export function useKeyboardEngine(enabled = true) {
           }
           store.clearSelection()
           store.clearGuides()
+          store.setHoveredId(null)
           store.setInteraction({ marquee: null, mode: 'idle' })
           return
         case 'enter':
@@ -47,6 +71,10 @@ export function useKeyboardEngine(enabled = true) {
         case 'copy':
           event.preventDefault()
           store.copySelected()
+          return
+        case 'cut':
+          event.preventDefault()
+          store.cutSelected()
           return
         case 'paste':
           event.preventDefault()
@@ -76,18 +104,22 @@ export function useKeyboardEngine(enabled = true) {
           event.preventDefault()
           store.selectAllSelectable()
           return
-        case 'flipHorizontal': {
+        case 'flipHorizontal':
           event.preventDefault()
-          const id = store.selectedId
-          if (id) store.flipElement(id, 'horizontal')
+          store.flipSelected('horizontal')
           return
-        }
-        case 'flipVertical': {
+        case 'flipVertical':
           event.preventDefault()
-          const id = store.selectedId
-          if (id) store.flipElement(id, 'vertical')
+          store.flipSelected('vertical')
           return
-        }
+        case 'align':
+          event.preventDefault()
+          store.alignSelected(intent.mode)
+          return
+        case 'distribute':
+          event.preventDefault()
+          store.distributeSelected(intent.mode)
+          return
         case 'zoomIn':
           event.preventDefault()
           store.zoomIn()
@@ -100,6 +132,10 @@ export function useKeyboardEngine(enabled = true) {
           event.preventDefault()
           store.fitViewport()
           return
+        case 'zoomToSelection':
+          event.preventDefault()
+          store.zoomToSelection()
+          return
         case 'zoom100':
           event.preventDefault()
           store.zoomTo100()
@@ -111,12 +147,18 @@ export function useKeyboardEngine(enabled = true) {
 
     const onKeyUp = (event: KeyboardEvent) => {
       const intent = KeyboardEngine.resolveKeyUp(event)
-      if (!intent || intent.type !== 'toolHand') return
-      useEditorStore.getState().setInteraction({
-        spacePressed: false,
-        tool: 'select',
-        mode: 'idle',
-      })
+      if (!intent) return
+      if (intent.type === 'toolHand') {
+        useEditorStore.getState().setInteraction({
+          spacePressed: false,
+          tool: 'select',
+          mode: 'idle',
+        })
+        return
+      }
+      if (intent.type === 'keepRatio') {
+        useEditorStore.getState().setInteraction({ keepRatio: false })
+      }
     }
 
     window.addEventListener('keydown', onKeyDown)

@@ -77,4 +77,29 @@ export class SelectionEngine {
       })
       .map((el) => el.id)
   }
+
+  /**
+   * Marquee + modifiers: ctrl/meta → toggle each hit; shift → add; else replace.
+   */
+  static applyMarquee(
+    current: string[],
+    hitIds: string[],
+    modifiers: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean },
+  ): string[] {
+    if (modifiers.ctrlKey || modifiers.metaKey) {
+      let next = [...current]
+      for (const id of hitIds) {
+        next = SelectionEngine.toggle(next, id)
+      }
+      return next
+    }
+    if (modifiers.shiftKey) {
+      let next = [...current]
+      for (const id of hitIds) {
+        next = SelectionEngine.add(next, id)
+      }
+      return next
+    }
+    return SelectionEngine.replace(hitIds)
+  }
 }

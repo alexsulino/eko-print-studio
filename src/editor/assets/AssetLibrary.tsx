@@ -1,25 +1,17 @@
 import { useMemo } from 'react'
-import { useEditorStore } from '@/store/editorStore'
+import { useEditorSession, useEditorSnapshot } from '@/sdk/react/EditorProvider'
 import { AssetGrid } from './AssetGrid'
-import { buildLibraryCatalog } from './libraryCatalog'
 import './assets.css'
 
 /**
- * Asset Library Experience — browse document assets and insert via InsertAsset.
- *
- * Flow: AssetLibrary → InsertAsset → element → History → EkoDocument → Renderer
- *
- * Deferred (prepared, not implemented): upload, drag-drop onto canvas, search,
- * categories, favorites.
+ * Asset Library — catalog + InsertAsset via SDK session.
  */
 export function AssetLibrary() {
-  const document = useEditorStore((s) => s.document)
-  const insertAsset = useEditorStore((s) => s.insertAsset)
+  const session = useEditorSession()
+  const snap = useEditorSnapshot()
+  const document = snap.document
 
-  const assets = useMemo(() => {
-    if (!document) return []
-    return buildLibraryCatalog(document.assets)
-  }, [document])
+  const assets = useMemo(() => session.listLibraryCatalog(), [session, document?.assets])
 
   if (!document) {
     return (
@@ -36,27 +28,22 @@ export function AssetLibrary() {
         <p className="eko-asset-library__hint">Clique para inserir no centro da página</p>
       </header>
 
-      {/* Future: search / categories / favorites toolbar */}
-      <div className="eko-asset-library__toolbar" aria-hidden>
-        <span className="eko-asset-library__toolbar-slot">Search soon</span>
-      </div>
+      <div className="eko-asset-library__toolbar" aria-hidden />
 
       <AssetGrid
         assets={assets}
         onSelect={(assetId) => {
-          const entry = assets.find((a) => a.id === assetId)
-          if (!entry) return
-          insertAsset({
-            assetId: entry.id,
-            libraryKind: entry.kind,
-            sourceUri: entry.sourceUri,
-            name: entry.name,
-            mimeType: entry.mimeType,
+          const asset = assets.find((a) => a.id === assetId)
+          if (!asset) return
+          session.insertAsset({
+            assetId: asset.id,
+            libraryKind: asset.kind,
+            sourceUri: asset.sourceUri,
+            name: asset.name,
+            mimeType: 'mimeType' in asset ? asset.mimeType : undefined,
           })
         }}
       />
-
-      {/* Future: upload dropzone */}
     </div>
   )
 }

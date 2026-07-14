@@ -4,7 +4,7 @@ import type { ResolvedLayout } from '@/core/layout/LayoutResolver'
 
 /**
  * Renderer projection model — still domain-shaped.
- * React/Konva components consume this; they never write back into EkoDocument.
+ * Consumed by RenderPipeline / GraphicsAdapters; React/Konva never write back into EkoDocument.
  */
 export interface RendererFrame {
   paper: {
@@ -19,9 +19,9 @@ export interface RendererFrame {
 }
 
 /**
- * Renderer Adapter — EkoDocument layout → renderer frame.
+ * Domain frame adapter — EkoDocument layout → renderer frame (no paint library).
  *
- * EkoDocument → Layout Resolver → Renderer Adapter → Konva
+ * EkoDocument → Layout Resolver → Renderer Adapter → Render Pipeline → GraphicsAdapter
  */
 export class RendererAdapter {
   static toFrame(layout: ResolvedLayout): RendererFrame {

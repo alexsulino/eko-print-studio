@@ -17,6 +17,8 @@ export class TransformerEngine {
       height,
       scaleX: flipX,
       scaleY: flipY,
+      originX: transform.originX ?? 0,
+      originY: transform.originY ?? 0,
     }
   }
 
@@ -70,6 +72,8 @@ export class TransformerEngine {
       rotation: patch.rotation ?? transform.rotation,
       scaleX: patch.scaleX ?? transform.scaleX,
       scaleY: patch.scaleY ?? transform.scaleY,
+      originX: patch.originX ?? transform.originX ?? 0,
+      originY: patch.originY ?? transform.originY ?? 0,
     }
   }
 

@@ -50,6 +50,24 @@ export function describeTransformCommand(payload: CanvasTransformPayload): {
   }
 }
 
+export function describeTransformCommands(payloads: CanvasTransformPayload[]): Array<{
+  elementId: string
+  transform: {
+    x: number
+    y: number
+    width: number
+    height: number
+    rotation: number
+    scaleX: number
+    scaleY: number
+  }
+}> {
+  return payloads.map((payload) => describeTransformCommand(payload)).map((cmd) => ({
+    elementId: cmd.elementId,
+    transform: cmd.transform,
+  }))
+}
+
 export function describeMoveCommand(payload: CanvasMovePayload): {
   type: 'MoveElement'
   elementId: string

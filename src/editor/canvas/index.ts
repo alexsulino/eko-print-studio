@@ -4,6 +4,7 @@ export type { CanvasClickModifiers } from './canvasSelection'
 export {
   describeMoveCommand,
   describeTransformCommand,
+  describeTransformCommands,
 } from './canvasTransform'
 export type { CanvasMovePayload, CanvasTransformPayload } from './canvasTransform'
 

@@ -5,7 +5,7 @@ export const CURRENT_SCHEMA_VERSION = '1.1.0'
 export const MIN_SUPPORTED_SCHEMA_VERSION = '1.0.0'
 
 export type DocumentType = 'template' | 'session' | 'production'
-export type Unit = 'mm' | 'cm' | 'px'
+export type Unit = 'mm' | 'cm' | 'px' | 'in' | 'pt'
 export type Orientation = 'portrait' | 'landscape'
 
 export interface DocumentProductionMeta {
@@ -16,6 +16,8 @@ export interface DocumentProductionMeta {
 
 export interface DocumentMetadata {
   name: string
+  /** Optional authoring description (not required for production). */
+  description?: string
   productId?: string
   masterId?: string
   createdAt: string

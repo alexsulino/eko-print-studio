@@ -1,19 +1,16 @@
 import { useMemo } from 'react'
-import { useEditorStore } from '@/store/editorStore'
+import { useEditorSession, useEditorSnapshot } from '@/sdk/react/EditorProvider'
 import { AddPageButton } from './AddPageButton'
 import { PageItem } from './PageItem'
 import './pages.css'
 
 /**
- * Multi-page navigator — reads pages from document; active page from Zustand only.
- * Mutations go through AddPage / DuplicatePage commands.
+ * Multi-page navigator — SDK session only.
  */
 export function PageNavigator() {
-  const document = useEditorStore((s) => s.document)
-  const activePageId = useEditorStore((s) => s.activePageId)
-  const activatePage = useEditorStore((s) => s.activatePage)
-  const addPage = useEditorStore((s) => s.addPage)
-  const duplicatePage = useEditorStore((s) => s.duplicatePage)
+  const session = useEditorSession()
+  const snap = useEditorSnapshot()
+  const document = snap.document
 
   const pages = useMemo(() => {
     const list = document?.pages ?? []
@@ -38,14 +35,14 @@ export function PageNavigator() {
               id={page.id}
               name={page.name}
               index={page.index ?? index}
-              active={page.id === activePageId}
-              onSelect={activatePage}
-              onDuplicate={duplicatePage}
+              active={page.id === snap.activePageId}
+              onSelect={(id) => session.activatePage(id)}
+              onDuplicate={(id) => session.duplicatePage(id)}
             />
           </div>
         ))}
       </div>
-      <AddPageButton onAdd={() => addPage()} />
+      <AddPageButton onAdd={() => session.addPage()} />
     </div>
   )
 }

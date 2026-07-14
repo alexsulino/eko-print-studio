@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CanvasEditor } from '@/components/CanvasEditor/CanvasEditor'
 import { AssetLibrary } from '@/editor/assets'
 import { LayersPanel } from '@/editor/layers'
 import { PropertiesPanel } from '@/editor/inspector'
+import { ElementsQuickAdd } from '@/editor/elements'
 import { PageNavigator } from '@/editor/pages'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { DiagnosticsPanel } from '@/components/Diagnostics/DiagnosticsPanel'
@@ -14,89 +15,146 @@ import {
   TopToolbar,
 } from '@/editor/layout'
 import { useDiagnosticsMode } from '@/hooks/useDiagnosticsMode'
-import { downloadDocumentJson } from '@/services/documentService'
-import { useEditorStore } from '@/store/editorStore'
+import {
+  EditorProvider,
+  useEditor,
+  useEditorSession,
+  useEditorSnapshot,
+  useThemeMode,
+} from '@/sdk/react/EditorProvider'
+import {
+  ConfirmHost,
+  ContextMenuHost,
+  FloatingToolbar,
+  ToastHost,
+  themeEngine,
+} from '@/ui'
+import { bootWooCommerceFromUrl } from '@/adapters/woocommerce'
+import type { WooCommerceAdapter } from '@/adapters/woocommerce'
+import { localDocumentProvider } from '@/providers/LocalDocumentProvider'
+import { LocalPersistenceProvider } from '@/providers/LocalPersistenceProvider'
+import { LocalPersonalizationSessionStore } from '@/providers/LocalPersonalizationSessionStore'
+import { EkoPrintStudio } from '@/sdk/EkoPrintStudio'
 import '@/styles/editor.css'
+import '@/ui/styles/ui.css'
 
-export default function App() {
-  const bootstrapSession = useEditorStore((s) => s.bootstrapSession)
-  const isLoading = useEditorStore((s) => s.isLoading)
-  const document = useEditorStore((s) => s.document)
-  const lastError = useEditorStore((s) => s.lastError)
-  const activePageId = useEditorStore((s) => s.activePageId)
-  const viewport = useEditorStore((s) => s.viewport)
-  const undo = useEditorStore((s) => s.undo)
-  const redo = useEditorStore((s) => s.redo)
-  const zoomIn = useEditorStore((s) => s.zoomIn)
-  const zoomOut = useEditorStore((s) => s.zoomOut)
+function createCommerceEditor() {
+  return new EkoPrintStudio({
+    documentProvider: localDocumentProvider,
+    providers: { persistence: new LocalPersistenceProvider() },
+    sessionStore: new LocalPersonalizationSessionStore(),
+  })
+}
+
+function CreatorApp() {
+  const editor = useEditor()
+  const session = useEditorSession()
+  const snap = useEditorSnapshot()
   const bootstrappedRef = useRef(false)
-  const appRenderCountRef = useRef(0)
+  const commerceAdapterRef = useRef<WooCommerceAdapter | null>(null)
+  const [commerceMode, setCommerceMode] = useState(false)
   const { open: diagnosticsOpen, setOpen: setDiagnosticsOpen } = useDiagnosticsMode()
-
-  if (import.meta.env.DEV) {
-    appRenderCountRef.current += 1
-    if (appRenderCountRef.current === 20 || appRenderCountRef.current % 50 === 0) {
-      // eslint-disable-next-line no-console
-      console.warn('[Eko DEV] App render count', appRenderCountRef.current)
-    }
-  }
+  const { mode, setMode } = useThemeMode('canva')
 
   useEffect(() => {
-    // StrictMode remounts; store-level lock + this guard keep a single logical bootstrap.
+    themeEngine.setTheme(mode)
+  }, [mode])
+
+  useEffect(() => {
     if (bootstrappedRef.current) return
     bootstrappedRef.current = true
-    void bootstrapSession()
-  }, [bootstrapSession])
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return
-    return useEditorStore.subscribe((state, prev) => {
-      if (state.document === prev.document) return
-      // eslint-disable-next-line no-console
-      console.debug('[Eko DEV] Zustand document changed', {
-        id: state.document?.id,
-        elements: state.document?.elements.length,
+    const params = new URLSearchParams(window.location.search)
+    const isCommerce = Boolean(params.get('templateId') || params.get('sessionId'))
+    if (!isCommerce) {
+      void editor.bootstrap()
+      return
+    }
+    void bootWooCommerceFromUrl({ editor })
+      .then((result) => {
+        if (!result) {
+          void editor.bootstrap()
+          return
+        }
+        commerceAdapterRef.current = result.adapter
+        setCommerceMode(true)
+        const theme = params.get('theme') as 'canva' | 'light' | 'dark' | null
+        if (theme) setMode(theme)
       })
-    })
-  }, [])
+      .catch(() => {
+        void editor.bootstrap()
+      })
+  }, [editor, setMode])
 
-  const documentTitle = document
-    ? `${document.metadata.name} · ${document.type} · schema ${document.schemaVersion}`
-    : 'Sem documento'
-
+  const document = snap.document
   const activePage =
-    document?.pages?.find((p) => p.id === activePageId) ?? document?.pages?.[0] ?? null
+    document?.pages?.find((p) => p.id === snap.activePageId) ?? document?.pages?.[0] ?? null
 
   const pageInfo = document
     ? `${activePage?.name ?? 'Page'} · ${document.pages?.length ?? 1} page(s) · ${document.elements.length} elements`
     : 'Page —'
 
-  const zoomLabel = `Zoom ${Math.round(viewport.zoom * 100)}%`
+  const saveHandler = document
+    ? async () => {
+        if (commerceMode && commerceAdapterRef.current) {
+          await commerceAdapterRef.current.finalizeCustomization()
+          commerceAdapterRef.current.notifyHostClose()
+          return
+        }
+        session.saveLocalDownload()
+      }
+    : undefined
 
   return (
     <div className="editor-app">
       <EditorLayout
         toolbar={
           <TopToolbar
-            documentTitle={documentTitle}
-            onUndo={document ? () => undo() : undefined}
-            onRedo={document ? () => redo() : undefined}
-            onZoomIn={document ? () => zoomIn() : undefined}
-            onZoomOut={document ? () => zoomOut() : undefined}
-            onSave={
+            documentTitle={snap.documentTitle}
+            zoomPercent={snap.zoomPercent}
+            canUndo={snap.canUndo}
+            canRedo={snap.canRedo}
+            gridVisible={snap.grid.visible}
+            guidesVisible={snap.guidesVisible}
+            themeMode={mode}
+            onUndo={document ? () => session.undo() : undefined}
+            onRedo={document ? () => session.redo() : undefined}
+            onZoomIn={document ? () => session.zoomIn() : undefined}
+            onZoomOut={document ? () => session.zoomOut() : undefined}
+            onZoom100={document ? () => session.zoomTo100() : undefined}
+            onFit={document ? () => session.fitViewport() : undefined}
+            onFitWorkspace={document ? () => session.fitWorkspace() : undefined}
+            onToggleGrid={document ? () => session.toggleGridVisible() : undefined}
+            onToggleGuides={document ? () => session.toggleGuidesVisible() : undefined}
+            onPreview={document ? () => void editor.generateProductionPreview().catch(() => session.preview()) : undefined}
+            onOpen={
               document
-                ? () => {
-                    downloadDocumentJson(document)
-                  }
+                ? () =>
+                    session.openFilePicker((json) => {
+                      session.importJson(json)
+                    })
                 : undefined
             }
+            onSave={saveHandler ? () => void saveHandler() : undefined}
+            onThemeCycle={() => {
+              const order = ['canva', 'light', 'dark'] as const
+              const idx = order.indexOf(mode)
+              setMode(order[(idx + 1) % order.length]!)
+            }}
           />
         }
-        left={<LeftSidebar layersContent={<LayersPanel />} assetsContent={<AssetLibrary />} />}
+        left={
+          <LeftSidebar
+            layersContent={<LayersPanel />}
+            assetsContent={<AssetLibrary />}
+            textContent={<ElementsQuickAdd kind="text" />}
+            shapesContent={<ElementsQuickAdd kind="shapes" />}
+            imagesContent={<AssetLibrary />}
+          />
+        }
         canvas={
-          isLoading || !document ? (
+          snap.isLoading || !document ? (
             <div className="canvas-empty">
-              {lastError ? lastError : 'Criando session a partir do master…'}
+              {snap.lastError ? snap.lastError : commerceMode ? 'Abrindo personalização…' : 'Abrindo template…'}
             </div>
           ) : (
             <ErrorBoundary region="canvas">
@@ -104,17 +162,33 @@ export default function App() {
             </ErrorBoundary>
           )
         }
+        canvasOverlay={<FloatingToolbar />}
         right={<RightInspector propertiesContent={<PropertiesPanel />} />}
         bottom={
           <>
             <PageNavigator />
-            <BottomStatusBar pageInfo={pageInfo} zoomLabel={zoomLabel} />
+            <BottomStatusBar pageInfo={pageInfo} zoomLabel={`Zoom ${snap.zoomPercent}%`} />
           </>
         }
       />
+      <ToastHost />
+      <ConfirmHost />
+      <ContextMenuHost />
       {import.meta.env.DEV && diagnosticsOpen ? (
         <DiagnosticsPanel onClose={() => setDiagnosticsOpen(false)} />
       ) : null}
     </div>
+  )
+}
+
+export default function App() {
+  const editorRef = useRef<EkoPrintStudio | null>(null)
+  if (!editorRef.current) {
+    editorRef.current = createCommerceEditor()
+  }
+  return (
+    <EditorProvider editor={editorRef.current}>
+      <CreatorApp />
+    </EditorProvider>
   )
 }

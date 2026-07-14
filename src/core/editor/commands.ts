@@ -10,6 +10,7 @@ import { GroupEngine } from '@/core/groups/GroupEngine'
 import { PropertyEngine } from '@/core/properties/PropertyEngine'
 import { getPropertySchema } from '@/core/properties/propertySchemas'
 import { addBlankPage, duplicateDocumentPage } from '@/core/pages/pageMutations'
+import { PageEngine } from '@/core/pages/PageEngine'
 import {
   createElementFromAsset,
   defaultInsertSize,
@@ -111,6 +112,14 @@ export function applyCommand(
       if (!el) return { document, success: false, reason: 'Element not found' }
       const check = guard(document, el, 'move')
       if (!check.ok) return { document, success: false, reason: check.reason }
+      if (el.type === 'group') {
+        const dx = command.x - el.transform.x
+        const dy = command.y - el.transform.y
+        return {
+          success: true,
+          document: GroupEngine.applyMoveDelta(document, el.id, dx, dy),
+        }
+      }
       return {
         success: true,
         document: updateElement(document, command.elementId, (current) => ({
@@ -213,6 +222,14 @@ export function applyCommand(
         return { document, success: false, reason: 'No allowed transform fields in patch' }
       }
 
+      if (el.type === 'group') {
+        const nextTransform = TransformerEngine.applyPatch(el.transform, patch)
+        return {
+          success: true,
+          document: GroupEngine.applyTransformPatch(document, el.id, nextTransform),
+        }
+      }
+
       return {
         success: true,
         document: updateElement(document, command.elementId, (current) => {
@@ -257,6 +274,48 @@ export function applyCommand(
               : TransformerEngine.flipVertical(current.transform),
         })),
       }
+    }
+
+    case 'TransformElements': {
+      let next = document
+      let applied = 0
+      for (const item of command.transforms) {
+        const result = applyCommand(next, {
+          type: 'TransformElement',
+          elementId: item.elementId,
+          transform: item.transform,
+          timestamp: command.timestamp,
+        })
+        if (result.success && result.document) {
+          next = result.document
+          applied += 1
+        }
+      }
+      if (!applied) {
+        return { document, success: false, reason: 'No transforms applied' }
+      }
+      return { success: true, document: next }
+    }
+
+    case 'FlipElements': {
+      let next = document
+      let applied = 0
+      for (const elementId of command.elementIds) {
+        const result = applyCommand(next, {
+          type: 'FlipElement',
+          elementId,
+          axis: command.axis,
+          timestamp: command.timestamp,
+        })
+        if (result.success && result.document) {
+          next = result.document
+          applied += 1
+        }
+      }
+      if (!applied) {
+        return { document, success: false, reason: 'No flips applied' }
+      }
+      return { success: true, document: next }
     }
 
     case 'UpdateElementProperties': {
@@ -625,6 +684,40 @@ export function applyCommand(
         document: result.document,
         selectedIds: [],
         selectedId: null,
+      }
+    }
+
+    case 'DeletePage': {
+      if (!document.permissions.canEdit) {
+        return { document, success: false, reason: 'Document permissions deny editing' }
+      }
+      const next = PageEngine.delete(document, command.pageId)
+      if (!next) {
+        return {
+          document,
+          success: false,
+          reason: 'Cannot delete page (missing or last page)',
+        }
+      }
+      return {
+        success: true,
+        document: next,
+        selectedIds: [],
+        selectedId: null,
+      }
+    }
+
+    case 'ReorderPages': {
+      if (!document.permissions.canEdit) {
+        return { document, success: false, reason: 'Document permissions deny editing' }
+      }
+      const next = PageEngine.reorder(document, command.orderedIds)
+      if (!next) {
+        return { document, success: false, reason: 'Invalid page order' }
+      }
+      return {
+        success: true,
+        document: next,
       }
     }
 

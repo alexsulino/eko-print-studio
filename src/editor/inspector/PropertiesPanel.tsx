@@ -1,22 +1,21 @@
 import { useCallback, useMemo } from 'react'
-import { PropertyEngine } from '@/core/properties/PropertyEngine'
-import { PROPERTY_GROUPS } from '@/types/properties'
+import { useEditorSession, useEditorSnapshot } from '@/sdk/react/EditorProvider'
 import type { ImageElement } from '@/types/element'
-import { useEditorStore } from '@/store/editorStore'
 import { InspectorEmptyState } from './InspectorEmptyState'
 import { InspectorSection } from './InspectorSection'
 import { PropertyField } from './PropertyField'
 import './inspector.css'
 
 /**
- * Right Inspector — observes Zustand selection; writes only via updateProperty → commands.
+ * Right Inspector — Property Engine via SDK session (no Core imports).
  */
 export function PropertiesPanel() {
-  const document = useEditorStore((s) => s.document)
-  const selectedIds = useEditorStore((s) => s.selectedIds)
-  const selectedId = useEditorStore((s) => s.selectedId)
-  const updateProperty = useEditorStore((s) => s.updateProperty)
-  const lastError = useEditorStore((s) => s.lastError)
+  const session = useEditorSession()
+  const snap = useEditorSnapshot()
+  const document = snap.document
+  const selectedIds = snap.selectedIds
+  const selectedId = snap.selectedId
+  const lastError = snap.lastError
 
   const element =
     document && selectedId
@@ -24,17 +23,16 @@ export function PropertiesPanel() {
       : null
 
   const grouped = useMemo(() => {
-    if (!document || !element) return null
-    const descriptors = PropertyEngine.getDescriptors(document, element)
-    return PropertyEngine.groupDescriptors(descriptors)
-  }, [document, element])
+    if (!element) return null
+    return session.getGroupedPropertyDescriptors(element.id)
+  }, [element, session, snap.document])
 
   const onChange = useCallback(
     (path: string, value: unknown) => {
       if (!element) return
-      updateProperty(element.id, path, value)
+      session.updateProperty(element.id, path, value)
     },
-    [element, updateProperty],
+    [element, session],
   )
 
   if (!document) {
@@ -93,17 +91,13 @@ export function PropertiesPanel() {
         ) : null}
       </dl>
 
-      {PROPERTY_GROUPS.map((group) => {
+      {session.getPropertyGroups().map((group) => {
         const descriptors = grouped[group.id] ?? []
         if (!descriptors.length) return null
         return (
           <InspectorSection key={group.id} title={group.label}>
             {descriptors.map((descriptor) => (
-              <PropertyField
-                key={descriptor.path}
-                descriptor={descriptor}
-                onChange={onChange}
-              />
+              <PropertyField key={descriptor.path} descriptor={descriptor} onChange={onChange} />
             ))}
           </InspectorSection>
         )

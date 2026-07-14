@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AssetLibrary } from '@/editor/assets'
+import { EditorProvider } from '@/sdk/react/EditorProvider'
 import { useEditorStore } from '@/store/editorStore'
 import { normalizeDocument } from '@/core/document/normalizeDocument'
 import { cloneToSession } from '@/core/document/cloneToSession'
@@ -37,7 +38,11 @@ describe('AssetLibrary UI', () => {
     document.body.appendChild(container)
     root = createRoot(container)
     act(() => {
-      root.render(<AssetLibrary />)
+      root.render(
+        <EditorProvider>
+          <AssetLibrary />
+        </EditorProvider>,
+      )
     })
   }
 

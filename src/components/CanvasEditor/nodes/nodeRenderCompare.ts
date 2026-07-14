@@ -12,6 +12,7 @@ export interface CanvasNodeRenderProps {
   interactionCursor?: string
   nodeRef?: (node: Konva.Node | null) => void
   onSelect: (id: string, evt: { evt: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean } }) => void
+  onHover?: (id: string | null) => void
   onEditStart?: (id: string) => void
   onDragMove?: (id: string, x: number, y: number) => { x: number; y: number }
   onDragEnd: (id: string, x: number, y: number) => void
@@ -30,6 +31,7 @@ export function areCanvasNodePropsEqual(
     prev.interactionCursor === next.interactionCursor &&
     prev.nodeRef === next.nodeRef &&
     prev.onSelect === next.onSelect &&
+    prev.onHover === next.onHover &&
     prev.onEditStart === next.onEditStart &&
     prev.onDragMove === next.onDragMove &&
     prev.onDragEnd === next.onDragEnd

@@ -1,4 +1,4 @@
-import type { LibraryAssetEntry, LibraryAssetKind } from '@/core/assets'
+import type { LibraryAssetEntry, LibraryAssetKind } from '@/sdk/session/assetTypes'
 
 export interface AssetCardProps {
   id: string

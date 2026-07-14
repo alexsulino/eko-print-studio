@@ -135,4 +135,46 @@ export class LayerEngine {
       ),
     }
   }
+
+  /** Place `elementId` immediately before `beforeId` among siblings. */
+  static moveBefore(document: EkoDocument, elementId: string, beforeId: string): EkoDocument {
+    return LayerEngine.moveRelative(document, elementId, beforeId, 'before')
+  }
+
+  /** Place `elementId` immediately after `afterId` among siblings. */
+  static moveAfter(document: EkoDocument, elementId: string, afterId: string): EkoDocument {
+    return LayerEngine.moveRelative(document, elementId, afterId, 'after')
+  }
+
+  private static moveRelative(
+    document: EkoDocument,
+    elementId: string,
+    anchorId: string,
+    mode: 'before' | 'after',
+  ): EkoDocument {
+    const doc = normalizeDocument(document)
+    const target = doc.elements.find((el) => el.id === elementId)
+    const anchor = doc.elements.find((el) => el.id === anchorId)
+    if (!target || !anchor) return doc
+    if ((target.parentId ?? null) !== (anchor.parentId ?? null)) return doc
+
+    const siblings = doc.elements
+      .filter((el) => (el.parentId ?? null) === (target.parentId ?? null))
+      .sort((a, b) => a.zIndex - b.zIndex)
+
+    const without = siblings.filter((el) => el.id !== elementId)
+    const anchorIndex = without.findIndex((el) => el.id === anchorId)
+    if (anchorIndex < 0) return doc
+    const insertAt = mode === 'before' ? anchorIndex : anchorIndex + 1
+    const next = [...without]
+    next.splice(insertAt, 0, target)
+    const zMap = new Map(next.map((el, i) => [el.id, i]))
+    return {
+      ...doc,
+      metadata: { ...doc.metadata, updatedAt: new Date().toISOString() },
+      elements: doc.elements.map((el) =>
+        zMap.has(el.id) ? { ...el, zIndex: zMap.get(el.id)! } : el,
+      ),
+    }
+  }
 }

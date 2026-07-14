@@ -95,7 +95,7 @@ export function Toolbar() {
         >
           Hand
         </button>
-        <button type="button" onClick={fitViewport} disabled={!document}>
+        <button type="button" onClick={() => fitViewport()} disabled={!document}>
           Fit
         </button>
         <button type="button" onClick={zoomTo100} disabled={!document}>

@@ -1,9 +1,18 @@
 import type { ElementTransform } from './element'
 
 /** Transient UI interaction — never persisted in EkoDocument. */
-export type InteractionTool = 'select' | 'hand'
+export type InteractionTool = 'select' | 'hand' | 'text'
 
-export type InteractionMode = 'idle' | 'marquee' | 'dragging' | 'transforming' | 'panning'
+export type InteractionMode =
+  | 'idle'
+  | 'hover'
+  | 'marquee'
+  | 'dragging'
+  | 'transforming'
+  | 'resizing'
+  | 'rotating'
+  | 'panning'
+  | 'editing'
 
 /**
  * Modal editor session — single entity for text edit, crop, path edit, etc.
@@ -40,13 +49,26 @@ export interface MarqueeRect {
   y2: number
 }
 
-export type SnapGuideKind = 'edge' | 'center' | 'margin' | 'safe' | 'bleed' | 'object'
+export type SnapGuideKind =
+  | 'edge'
+  | 'center'
+  | 'margin'
+  | 'safe'
+  | 'bleed'
+  | 'object'
+  | 'grid'
+  | 'guide'
+  | 'spacing'
 
 export interface SnapGuide {
   orientation: 'vertical' | 'horizontal'
   position: number
   kind: SnapGuideKind
+  /** Equal-gap length for spacing guides (document px). */
+  spacing?: number
 }
+
+export type SnapPriority = SnapGuideKind
 
 export interface SnapConfig {
   enabled: boolean
@@ -59,12 +81,34 @@ export interface SnapConfig {
   safeArea: boolean
   bleed: boolean
   marginMm: number
+  /** Snap to a document-space grid. */
+  grid: boolean
+  gridSizePx: number
+  /** Include persistent editor guides (GuidesEngine) as snap targets. */
+  persistentGuides: boolean
+  /**
+   * Higher index = lower priority when deltas are within threshold.
+   * First match among equally close candidates wins by priority order.
+   */
+  priorities: SnapPriority[]
 }
 
-/** Full snap feature matrix (engine / tests). */
+export const DEFAULT_SNAP_PRIORITIES: SnapPriority[] = [
+  'object',
+  'center',
+  'edge',
+  'guide',
+  'margin',
+  'safe',
+  'bleed',
+  'grid',
+  'spacing',
+]
+
+/** Full snap feature matrix (engine / tests / professional UX). */
 export const DEFAULT_SNAP_CONFIG: SnapConfig = {
   enabled: true,
-  thresholdPx: 8,
+  thresholdPx: 6,
   documentEdges: true,
   documentCenter: true,
   objectEdges: true,
@@ -73,11 +117,15 @@ export const DEFAULT_SNAP_CONFIG: SnapConfig = {
   safeArea: true,
   bleed: true,
   marginMm: 5,
+  grid: false,
+  gridSizePx: 8,
+  persistentGuides: true,
+  priorities: [...DEFAULT_SNAP_PRIORITIES],
 }
 
 /**
  * Canvas Interaction Foundation (Phase 7.3) — page edges + center only.
- * Object/margin/safe/bleed remain available via SnapConfig for later phases.
+ * Kept for regression tests; runtime uses DEFAULT_SNAP_CONFIG.
  */
 export const FOUNDATION_SNAP_CONFIG: SnapConfig = {
   enabled: true,
@@ -90,6 +138,10 @@ export const FOUNDATION_SNAP_CONFIG: SnapConfig = {
   safeArea: false,
   bleed: false,
   marginMm: 5,
+  grid: false,
+  gridSizePx: 8,
+  persistentGuides: false,
+  priorities: [...DEFAULT_SNAP_PRIORITIES],
 }
 
 export interface InteractionState {
@@ -101,6 +153,10 @@ export interface InteractionState {
   guides: SnapGuide[]
   snap: SnapConfig
   spacePressed: boolean
+  /** Ephemeral hover target — never part of selection or document. */
+  hoveredId: string | null
+  /** Shift held — lock aspect ratio during resize (keyboard-driven). */
+  keepRatio: boolean
 }
 
 export const DEFAULT_INTERACTION_STATE: InteractionState = {
@@ -109,8 +165,10 @@ export const DEFAULT_INTERACTION_STATE: InteractionState = {
   session: { ...IDLE_INTERACTION_SESSION },
   marquee: null,
   guides: [],
-  snap: { ...FOUNDATION_SNAP_CONFIG },
+  snap: { ...DEFAULT_SNAP_CONFIG },
   spacePressed: false,
+  hoveredId: null,
+  keepRatio: false,
 }
 
 export interface ClipboardPayload {
@@ -126,6 +184,18 @@ export interface TransformUpdate {
   rotation?: number
   scaleX?: number
   scaleY?: number
+  originX?: number
+  originY?: number
 }
 
 export type ElementTransformPatch = Partial<ElementTransform>
+
+export type AlignMode =
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'centerHorizontal'
+  | 'centerVertical'
+
+export type DistributeMode = 'horizontal' | 'vertical'

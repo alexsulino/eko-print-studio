@@ -1,4 +1,4 @@
-import type { LibraryAssetEntry } from '@/core/assets'
+import type { LibraryAssetEntry } from '@/sdk/session/assetTypes'
 import { AssetCard } from './AssetCard'
 
 export interface AssetGridProps {

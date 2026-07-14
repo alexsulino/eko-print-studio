@@ -1,31 +1,28 @@
 import { useCallback, useMemo } from 'react'
-import { LayerEngine } from '@/core/layers/LayerEngine'
-import { SelectionEngine } from '@/core/selection/SelectionEngine'
-import { useEditorStore } from '@/store/editorStore'
+import { useEditorSession, useEditorSnapshot } from '@/sdk/react/EditorProvider'
 import { LayerTree } from './LayerTree'
 import { toLayerTreeNodes } from './types'
 import './layers.css'
 
 /**
- * Layer Experience — reads LayerEngine, writes selection only via store APIs.
- * No parallel selection state; no Konva access.
+ * Layer Experience — SDK session only (no Core / store imports).
  */
 export function LayersPanel() {
-  const document = useEditorStore((s) => s.document)
-  const activePageId = useEditorStore((s) => s.activePageId)
-  const activeSurfaceId = useEditorStore((s) => s.activeSurfaceId)
-  const selectedIds = useEditorStore((s) => s.selectedIds)
-  const selectElements = useEditorStore((s) => s.selectElements)
+  const session = useEditorSession()
+  const snap = useEditorSnapshot()
+  const document = snap.document
+  const selectedIds = snap.selectedIds
 
   const pageLabel = useMemo(() => {
     if (!document) return 'Page'
     const page =
-      document.pages?.find((p) => p.id === activePageId) ?? document.pages?.[0] ?? null
+      document.pages?.find((p) => p.id === snap.activePageId) ?? document.pages?.[0] ?? null
     return page?.name ?? document.metadata.name ?? 'Page'
-  }, [document, activePageId])
+  }, [document, snap.activePageId])
 
   const nodes = useMemo(() => {
     if (!document) return []
+    const layers = session.listLayers()
     const extras = new Map(
       document.elements.map((el) => [
         el.id,
@@ -41,15 +38,14 @@ export function LayersPanel() {
         },
       ]),
     )
-    return toLayerTreeNodes(LayerEngine.listForSurface(document, activeSurfaceId), extras)
-  }, [document, activeSurfaceId])
+    return toLayerTreeNodes(layers, extras)
+  }, [document, session, snap.activeSurfaceId, snap.document?.elements])
+
   const handleSelect = useCallback(
     (id: string, modifiers: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
-      const current = useEditorStore.getState().selectedIds
-      const next = SelectionEngine.applyClick(current, id, modifiers)
-      selectElements(next)
+      session.applySelectionClick(id, modifiers)
     },
-    [selectElements],
+    [session],
   )
 
   if (!document) {

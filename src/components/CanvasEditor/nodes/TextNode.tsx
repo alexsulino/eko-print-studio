@@ -15,6 +15,7 @@ function TextNodeComponent({
   suppressPaint,
   interactionCursor,
   onSelect,
+  onHover,
   onEditStart,
   onDragMove,
   onDragEnd,
@@ -54,12 +55,14 @@ function TextNodeComponent({
         ctx.fillStrokeShape(shape)
       }}
       onMouseEnter={(e) => {
+        onHover?.(element.id)
         const stage = e.target.getStage()
         if (stage && interactionCursor) {
           stage.container().style.cursor = interactionCursor
         }
       }}
       onMouseLeave={(e) => {
+        onHover?.(null)
         const stage = e.target.getStage()
         if (stage) stage.container().style.cursor = 'default'
       }}

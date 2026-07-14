@@ -15,6 +15,7 @@ function ImageNodeComponent({
   listening = true,
   interactionCursor,
   onSelect,
+  onHover,
   onDragMove,
   onDragEnd,
   nodeRef,
@@ -40,12 +41,14 @@ function ImageNodeComponent({
       listening={listening}
       visible={element.visible}
       onMouseEnter={(e) => {
+        onHover?.(element.id)
         const stage = e.target.getStage()
         if (stage && interactionCursor) {
           stage.container().style.cursor = interactionCursor
         }
       }}
       onMouseLeave={(e) => {
+        onHover?.(null)
         const stage = e.target.getStage()
         if (stage) stage.container().style.cursor = 'default'
       }}

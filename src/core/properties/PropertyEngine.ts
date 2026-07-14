@@ -5,6 +5,8 @@ import type { PropertyDescriptor, PropertySchemaField } from '@/types/properties
 import { templateRulesEngine } from '@/core/rules/TemplateRulesEngine'
 import { LayerEngine } from '@/core/layers/LayerEngine'
 import { getPropertySchema } from '@/core/properties/propertySchemas'
+import { objectRegistry } from '@/core/registry/ObjectRegistry'
+import { migrateElement } from '@/core/objects/migrateElement'
 
 function getPathValue(element: EkoElement, path: string): unknown {
   const parts = path.split('.')
@@ -16,13 +18,41 @@ function getPathValue(element: EkoElement, path: string): unknown {
   return current
 }
 
+function setPathValue(element: EkoElement, path: string, value: unknown): EkoElement {
+  const parts = path.split('.')
+  if (parts.length === 1) {
+    return { ...element, [parts[0]!]: value } as EkoElement
+  }
+  const root = parts[0]!
+  const rest = parts.slice(1)
+  const currentRoot = { ...((element as unknown as Record<string, unknown>)[root] as object) }
+  let cursor: Record<string, unknown> = currentRoot as Record<string, unknown>
+  for (let i = 0; i < rest.length - 1; i++) {
+    const key = rest[i]!
+    cursor[key] = { ...(cursor[key] as object) }
+    cursor = cursor[key] as Record<string, unknown>
+  }
+  cursor[rest[rest.length - 1]!] = value
+  return { ...element, [root]: currentRoot } as EkoElement
+}
+
 /**
- * Property Engine — domain layer for readable / updatable attributes.
+ * Property Engine — central read / write / validate / patch / merge / migrate.
  * UI never mutates JSON; it asks the engine, which yields Commands.
  */
 export class PropertyEngine {
+  static getValue(element: EkoElement, path: string): unknown {
+    return getPathValue(element, path)
+  }
+
+  static getSchema(element: EkoElement): PropertySchemaField[] {
+    const fromRegistry = objectRegistry.get(element.type)?.propertySchema
+    if (fromRegistry?.length) return fromRegistry
+    return getPropertySchema(element.type)
+  }
+
   static getDescriptors(document: EkoDocument, element: EkoElement): PropertyDescriptor[] {
-    const schema = getPropertySchema(element.type)
+    const schema = PropertyEngine.getSchema(element)
     const byId = new Map(document.elements.map((el) => [el.id, el]))
     const effective = LayerEngine.effectiveFlags(element, byId)
 
@@ -57,11 +87,6 @@ export class PropertyEngine {
     const action = field.ruleAction ?? 'edit'
     const decision = templateRulesEngine.can(element, action, document)
     if (!decision.allowed) return decision
-
-    if (field.path === 'properties.fontFamily' && typeof getPathValue(element, field.path) === 'string') {
-      // Font allow-list checked when applying a specific new value.
-    }
-
     return { allowed: true, reason: '' }
   }
 
@@ -74,7 +99,7 @@ export class PropertyEngine {
     const element = document.elements.find((el) => el.id === elementId)
     if (!element) return { success: false, reason: 'Element not found' }
 
-    const field = getPropertySchema(element.type).find((item) => item.path === path)
+    const field = PropertyEngine.getSchema(element).find((item) => item.path === path)
     if (!field) return { success: false, reason: `Unknown property path: ${path}` }
 
     const gate = PropertyEngine.canUpdate(document, element, field)
@@ -103,6 +128,44 @@ export class PropertyEngine {
     }
   }
 
+  /** Apply a path map onto an element (no rules) — used by migrate / defaults. */
+  static patch(element: EkoElement, patch: Record<string, unknown>): EkoElement {
+    let next = element
+    for (const [path, value] of Object.entries(patch)) {
+      next = setPathValue(next, path, value)
+    }
+    const ts = new Date().toISOString()
+    return {
+      ...next,
+      updatedAt: ts,
+      metadata: { ...next.metadata, updatedAt: ts },
+    }
+  }
+
+  /** Merge registry defaults under existing element without wiping user values. */
+  static mergeDefaults(element: EkoElement): EkoElement {
+    const factory = objectRegistry.create(element.type)
+    if (!factory) return PropertyEngine.migrateElement(element)
+    const merged = {
+      ...factory,
+      ...element,
+      transform: { ...factory.transform, ...element.transform },
+      appearance: { ...factory.appearance, ...element.appearance },
+      layout: { ...factory.layout, ...element.layout },
+      constraints: { ...factory.constraints, ...element.constraints },
+      metadata: { ...factory.metadata, ...element.metadata },
+      properties: {
+        ...(factory.properties as Record<string, unknown>),
+        ...(element.properties as Record<string, unknown>),
+      },
+    } as EkoElement
+    return PropertyEngine.migrateElement(merged)
+  }
+
+  static migrateElement(element: EkoElement): EkoElement {
+    return migrateElement(element)
+  }
+
   static groupDescriptors(descriptors: PropertyDescriptor[]): Record<string, PropertyDescriptor[]> {
     const groups: Record<string, PropertyDescriptor[]> = {
       transform: [],
@@ -114,6 +177,16 @@ export class PropertyEngine {
       groups[descriptor.group]?.push(descriptor)
     }
     return groups
+  }
+
+  /** Sanitize properties via registry before command apply. */
+  static sanitizeProperties(
+    document: EkoDocument,
+    element: EkoElement,
+    properties: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const sanitize = objectRegistry.get(element.type)?.sanitizeProperties
+    return sanitize ? sanitize(properties, document) : properties
   }
 }
 

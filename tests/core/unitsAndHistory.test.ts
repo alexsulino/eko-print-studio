@@ -20,6 +20,11 @@ describe('units', () => {
     const mm = fromPixels(px, 'mm', 300)
     expect(mm).toBeCloseTo(50, 5)
   })
+
+  it('round-trips in and pt', () => {
+    expect(toPixels(1, 'in', 300)).toBe(300)
+    expect(fromPixels(300, 'pt', 300)).toBeCloseTo(72, 5)
+  })
 })
 
 describe('CommandHistoryEngine', () => {

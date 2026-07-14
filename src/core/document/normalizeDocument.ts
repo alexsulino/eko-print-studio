@@ -6,17 +6,19 @@ import { getDocumentPixelSize } from '@/core/document/units'
 import { createPage } from '@/core/pages/createPage'
 import { createSurface } from '@/core/surfaces/createSurface'
 import { createDefaultRegionsFromProduction } from '@/core/regions/createRegion'
+import { migrateElement } from '@/core/objects/migrateElement'
 
 /**
  * Normalize any supported schema (1.0.0+) into a layout-ready EkoDocument (1.1.0).
  * Additive and backward compatible — never drops root elements.
+ * Also migrates elements into the unified object contract.
  */
 export function normalizeDocument(document: EkoDocument): EkoDocument {
   const { widthPx, heightPx } = getDocumentPixelSize(document.canvas)
   const next: EkoDocument = {
     ...document,
     schemaVersion: CURRENT_SCHEMA_VERSION,
-    elements: [...document.elements],
+    elements: document.elements.map((el) => migrateElement(el)),
     pages: document.pages ? [...document.pages] : undefined,
     surfaces: document.surfaces ? [...document.surfaces] : undefined,
     regions: document.regions ? [...document.regions] : undefined,

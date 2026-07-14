@@ -10,7 +10,9 @@ export type EditorCommandType =
   | 'ResizeElement'
   | 'RotateElement'
   | 'TransformElement'
+  | 'TransformElements'
   | 'FlipElement'
+  | 'FlipElements'
   | 'UpdateElementProperties'
   | 'UpdateProperty'
   | 'SetVisibility'
@@ -28,6 +30,8 @@ export type EditorCommandType =
   | 'UngroupElements'
   | 'AddPage'
   | 'DuplicatePage'
+  | 'DeletePage'
+  | 'ReorderPages'
   | 'InsertAsset'
 
 export interface EditorCommandBase {
@@ -90,6 +94,17 @@ export interface TransformElementCommand extends EditorCommandBase {
 export interface FlipElementCommand extends EditorCommandBase {
   type: 'FlipElement'
   elementId: string
+  axis: 'horizontal' | 'vertical'
+}
+
+export interface TransformElementsCommand extends EditorCommandBase {
+  type: 'TransformElements'
+  transforms: Array<{ elementId: string; transform: Partial<ElementTransform> }>
+}
+
+export interface FlipElementsCommand extends EditorCommandBase {
+  type: 'FlipElements'
+  elementIds: string[]
   axis: 'horizontal' | 'vertical'
 }
 
@@ -190,6 +205,16 @@ export interface DuplicatePageCommand extends EditorCommandBase {
   pageId: string
 }
 
+export interface DeletePageCommand extends EditorCommandBase {
+  type: 'DeletePage'
+  pageId: string
+}
+
+export interface ReorderPagesCommand extends EditorCommandBase {
+  type: 'ReorderPages'
+  orderedIds: string[]
+}
+
 /**
  * Insert an asset from the library as a new element (centered by default).
  * Payload is self-contained so history does not depend on AssetRepository.
@@ -219,7 +244,9 @@ export type EditorCommand =
   | ResizeElementCommand
   | RotateElementCommand
   | TransformElementCommand
+  | TransformElementsCommand
   | FlipElementCommand
+  | FlipElementsCommand
   | UpdateElementPropertiesCommand
   | UpdatePropertyCommand
   | SetVisibilityCommand
@@ -237,6 +264,8 @@ export type EditorCommand =
   | UngroupElementsCommand
   | AddPageCommand
   | DuplicatePageCommand
+  | DeletePageCommand
+  | ReorderPagesCommand
   | InsertAssetCommand
 
 export interface CommandResult {
@@ -262,10 +291,12 @@ export function commandToRuleAction(command: EditorCommand): import('./element')
       return 'move'
     case 'ResizeElement':
     case 'TransformElement':
+    case 'TransformElements':
       return 'resize'
     case 'RotateElement':
       return 'rotate'
     case 'FlipElement':
+    case 'FlipElements':
       return 'resize'
     case 'UpdateElementProperties':
       return 'edit'

@@ -155,16 +155,132 @@ Integrações externas utilizam Providers. O núcleo permanece independente de q
 
 ```text
 src/
-  types/       contratos (documento, elemento, rules, provider, viewport)
-  core/        document, rules, registry, viewport, editor/commands, history
-  providers/   I/O (LocalDocumentProvider; futuros adapters)
-  store/       estado da sessão de edição (Zustand)
-  services/    fachadas finas sobre core/providers
-  components/  UI — Toolbar, Canvas (renderer), PropertiesPanel
-  data/        templates de demonstração
+  types/         contratos (documento, elemento, rules, provider, viewport)
+  core/          document, rules, registry, viewport, render, platform, host, plugins, …
+  adapters/      backends de paint / host (KonvaAdapter; futuros Pixi / WebGL)
+  sdk/           fachada pública EkoPrintStudio
+  providers/     I/O (LocalDocumentProvider; futuros adapters de loja)
+  store/         estado da sessão de edição (Zustand)
+  services/      fachadas finas sobre core/providers
+  components/    UI — Toolbar, Canvas (projeção Konva), PropertiesPanel
+  data/          templates de demonstração
 ```
 
 Persistência nunca depende do canvas. Toda renderização deriva do documento. Nomes internos ligados à biblioteca de canvas permanecem como detalhe de implementação — não como marca do produto.
+
+---
+
+Pipeline oficial de projeção:
+
+```text
+EkoDocument
+  → Layout Resolver
+  → Renderer Adapter (frame de domínio)
+  → Render Pipeline (passes + object renderers + overlays)
+  → GraphicsAdapter (KonvaAdapter / futuros Pixi · WebGL · SVG · Canvas2D)
+  → Host UI (React CanvasEditor hoje; Vue / Angular / vanilla depois)
+```
+
+`layout/RendererAdapter` continua sendo apenas o projetor `ResolvedLayout → RendererFrame` (sem Konva).
+
+---
+
+## Rendering Engine (v0.6.0)
+
+| Peça | Local | Papel |
+|------|-------|--------|
+| RenderContext | `core/render/RenderContext` | Snapshot injetado (viewport, zoom, selection, theme, grid, guides, DPI, DPR) |
+| RendererRegistry | `core/render/RendererRegistry` | Um renderer por `rendererKey`; open/closed |
+| RenderPipeline | `core/render/RenderPipeline` | Passes extensíveis → `RenderScene` |
+| OverlaySystem | `core/render/OverlaySystem` | Selection / hover / snap / guides / grid / … separados do conteúdo |
+| RenderCache | `core/render/RenderCache` | Bitmap / text / SVG / image + dirty regions (infra) |
+| CanvasAdapter | `core/render/adapters/GraphicsAdapter` | Contrato de paint — Core nunca importa Konva |
+| KonvaAdapter | `adapters/konva` | Implementação fora do Core |
+
+---
+
+## Platform / SDK (v0.6.0)
+
+```text
+Host (Woo · Shopify · React · Vue · iframe · Desktop)
+    ↕  HostBridge (MessageBus / RPC / Callbacks)
+EkoPrintStudio SDK
+    ↕  providers (Storage · Asset · Font · Upload · Export · …)
+Core (document · commands · history · render pipeline · plugins)
+```
+
+- Providers: apenas interfaces em `core/platform` — sem implementações concretas nesta fase (exceto `DocumentProvider` / Local já existentes).
+- Plugins: `PluginRegistry` registra objetos, renderers, tools, panels, commands, shortcuts, menus, overlays, passes.
+- Eventos: `platformEvents` no `EventBus` (DocumentOpened/Saved, SelectionChanged, Object*, PageChanged, ZoomChanged, …).
+
+SDK:
+
+```ts
+const editor = new EkoPrintStudio({ documentProvider, providers, host })
+await editor.load(id)
+editor.on(platformEvents.SelectionChanged, handler)
+editor.register({ kind: 'plugin', plugin })
+await editor.export('json')
+editor.destroy()
+```
+
+Futuros adaptadores (`WooCommerceAdapter`, `ShopifyAdapter`, `ReactAdapter`, …) **nunca** alteram o Core.
+
+---
+
+## Creator Experience (v0.7.0)
+
+UI embarcável que se comporta como consumidor externo do SDK:
+
+```text
+Creator UI (editor/ + ui/)
+    ↓  apenas @/sdk (+ hooks)
+EkoPrintStudio + EditorSession
+    ↓
+Store → Commands → History → Core
+```
+
+| Peça | Local |
+|------|--------|
+| Tokens / ThemeEngine | `src/ui/tokens`, `src/ui/theme` |
+| Component library | `src/ui/components` |
+| Session API | `src/sdk/session/EditorSession` |
+| React binding | `src/sdk/react/EditorProvider` |
+
+Painéis (`PropertiesPanel`, `LayersPanel`, `AssetLibrary`, `PageNavigator`, `TopToolbar`) não importam `@/core`. O `CanvasEditor` permanece o adaptador de paint Konva até a migração completa do Render Pipeline.
+
+---
+
+## Commerce Integration (v0.8.0)
+
+```text
+WooCommerce / Shopify / …
+    ↓  adapters/* (sem Core)
+EkoPrintStudio (openPersonalization / finalize / preview)
+    ↓  DocumentProvider + PersistenceProvider
+PersonalizationSession + CommerceCartPayload / CommerceOrderPayload
+```
+
+| Peça | Local |
+|------|--------|
+| Contratos públicos | `types/commerce.ts` |
+| Ciclo de sessão | `sdk/commerce/PersonalizationSessionManager` |
+| Preview | `sdk/preview/ProductionPreview` |
+| Embed postMessage | `sdk/host/PostMessageBridge` |
+| Woo adapter | `adapters/woocommerce/WooCommerceAdapter` |
+
+O Core **nunca** importa WordPress, WooCommerce ou PHP. Payloads padronizados (`eko.commerce.cart/1`, `eko.commerce.order/1`) são o único contrato com a loja.
+
+### Plugin WooCommerce (v0.8.1)
+
+Pasta entregável: `integrations/woocommerce/eko-print-studio/`.
+
+| Camada | Responsabilidade |
+|--------|------------------|
+| PHP settings / product meta / order panel | Configuração do lojista |
+| REST (`eko-print/v1`) | Contexto do produto, add-to-cart, order payload |
+| `assets/js/host-bridge.js` | Abrir editor + receber cart via postMessage |
+| `bootWooCommerceFromUrl` (package TS) | Boot da sessão no app do editor |
 
 ---
 
@@ -184,10 +300,11 @@ Regras de isolamento (auditadas):
 - Renderer (`components/CanvasEditor`) conhece Konva
 - Providers/adapters conhecem I/O externo
 
-Pipeline oficial inalterado:
+Pipeline oficial inalterado em espírito — agora com pipeline de render + adapter:
 
 ```text
-EkoDocument → Layout Resolver → Renderer Adapter → Konva Canvas
+EkoDocument → Layout Resolver → Renderer Adapter (frame)
+  → Render Pipeline → CanvasAdapter (KonvaAdapter) → Stage
 ```
 
 ---

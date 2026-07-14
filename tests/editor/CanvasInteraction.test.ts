@@ -75,8 +75,8 @@ describe('Canvas Interaction Foundation — snap', () => {
     expect(CANVAS_FOUNDATION_SNAP.bleed).toBe(false)
     expect(SNAP_ROADMAP_DEFAULTS).toEqual({
       grid: false,
-      guides: false,
-      smartAlignment: false,
+      guides: true,
+      smartAlignment: true,
     })
   })
 

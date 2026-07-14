@@ -1,0 +1,1 @@
+export { KonvaAdapter } from './KonvaAdapter'

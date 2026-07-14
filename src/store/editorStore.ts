@@ -6,9 +6,15 @@ import { viewportManager } from '@/core/viewport/ViewportManager'
 import { SelectionEngine } from '@/core/selection/SelectionEngine'
 import { clipboardEngine } from '@/core/clipboard/ClipboardEngine'
 import { SnappingEngine } from '@/core/snapping/SnappingEngine'
+import { AlignmentGuides } from '@/core/alignment/AlignmentGuides'
+import { guidesEngine } from '@/core/guides/GuidesEngine'
+import { WorkspaceEngine } from '@/core/workspace/WorkspaceEngine'
+import { GridEngine } from '@/core/grid/GridEngine'
+import { DEFAULT_WORKSPACE_STATE, type WorkspaceState } from '@/types/workspace'
+import { DEFAULT_GRID_CONFIG, type GridConfig } from '@/types/grid'
 import { normalizeDocument } from '@/core/document/normalizeDocument'
 import { elementLifecycle } from '@/core/document/elementLifecycle'
-import { documentEvents, eventBus } from '@/core/events/EventBus'
+import { documentEvents, eventBus, platformEvents } from '@/core/events/EventBus'
 import { PropertyEngine } from '@/core/properties/PropertyEngine'
 import { LayoutResolver } from '@/core/layout'
 import { SAMPLE_MASTER_ID } from '@/data/sampleDocuments'
@@ -16,6 +22,7 @@ import { localDocumentProvider } from '@/providers/LocalDocumentProvider'
 import { exportDocument, importDocument } from '@/services/documentService'
 import { templateRulesEngine } from '@/core/rules/TemplateRulesEngine'
 import { reconcileActiveLayout } from '@/core/pages/pageMutations'
+import { getDocumentPixelSize } from '@/core/document/units'
 import type { EkoDocument } from '@/types/document'
 import type { EkoElement, ElementTransform } from '@/types/element'
 import type { EditorCommand } from '@/types/history'
@@ -23,6 +30,8 @@ import type { ViewportState } from '@/types/viewport'
 import {
   DEFAULT_INTERACTION_STATE,
   IDLE_INTERACTION_SESSION,
+  type AlignMode,
+  type DistributeMode,
   type InteractionState,
   type InteractionSession,
   type SnapGuide,
@@ -56,6 +65,12 @@ interface EditorStore {
   /** Viewport State */
   viewport: ViewportState
 
+  /** Infinite pasteboard (pages placed in world space — no element knowledge). */
+  workspace: WorkspaceState
+
+  /** Document grid overlay / snap config. */
+  grid: GridConfig
+
   /** Interaction State (transient UI) */
   interaction: InteractionState
 
@@ -69,9 +84,11 @@ interface EditorStore {
   activatePage: (pageId: string) => boolean
   addPage: (name?: string) => boolean
   duplicatePage: (pageId?: string) => boolean
-  /**
-   * Insert library asset onto the active surface via InsertAsset command.
-   */
+  deletePage: (pageId?: string) => boolean
+  reorderPages: (orderedIds: string[]) => boolean
+  rebuildWorkspace: () => void
+  setGrid: (patch: Partial<GridConfig>) => void
+  fitWorkspace: (smooth?: boolean) => void
   insertAsset: (payload: {
     assetId: string
     libraryKind: 'image' | 'svg' | 'template'
@@ -93,12 +110,19 @@ interface EditorStore {
   ) => void
   rotateElement: (elementId: string, rotation: number) => void
   transformElement: (elementId: string, transform: Partial<ElementTransform>) => void
+  transformElements: (
+    transforms: Array<{ elementId: string; transform: Partial<ElementTransform> }>,
+  ) => void
   flipElement: (elementId: string, axis: 'horizontal' | 'vertical') => void
+  flipSelected: (axis: 'horizontal' | 'vertical') => void
+  alignSelected: (mode: AlignMode) => void
+  distributeSelected: (mode: DistributeMode) => void
   updateElementProperties: (elementId: string, properties: Record<string, unknown>) => void
   updateProperty: (elementId: string, path: string, newValue: unknown) => boolean
 
   deleteSelected: () => void
   copySelected: () => void
+  cutSelected: () => void
   pasteClipboard: () => void
   duplicateSelected: () => void
   nudgeSelected: (dx: number, dy: number) => void
@@ -109,14 +133,17 @@ interface EditorStore {
   redo: () => boolean
 
   setViewport: (viewport: ViewportState) => void
-  fitViewport: () => void
+  fitViewport: (smooth?: boolean) => void
+  zoomToSelection: (smooth?: boolean) => void
   zoomIn: () => void
   zoomOut: () => void
   zoomTo100: () => void
   zoomAt: (nextZoom: number, screenX: number, screenY: number) => void
+  zoomAtToggle: (screenX: number, screenY: number) => void
   panBy: (dx: number, dy: number) => void
 
   setInteraction: (patch: Partial<InteractionState>) => void
+  setHoveredId: (id: string | null) => void
   setGuides: (guides: SnapGuide[]) => void
   clearGuides: () => void
   /** Start a modal interaction session (text edit, crop, …). */
@@ -156,6 +183,22 @@ function layoutIds(doc: EkoDocument): { activePageId: string | null; activeSurfa
   }
 }
 
+function syncWorkspace(
+  document: EkoDocument,
+  activePageId: string | null,
+  config?: WorkspaceState['config'],
+): WorkspaceState {
+  return WorkspaceEngine.layoutPages(
+    document,
+    config ?? DEFAULT_WORKSPACE_STATE.config,
+    activePageId,
+  )
+}
+
+function hydrateGuides(document: EkoDocument): void {
+  guidesEngine.hydrateFromDocument(document.guides)
+}
+
 export const useEditorStore = create<EditorStore>((set, get) => ({
   document: null,
   activePageId: null,
@@ -163,6 +206,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   selectedIds: [],
   selectedId: null,
   viewport: viewportManager.getState(),
+  workspace: { ...DEFAULT_WORKSPACE_STATE },
+  grid: { ...DEFAULT_GRID_CONFIG },
   interaction: { ...DEFAULT_INTERACTION_STATE },
   lastError: null,
   isLoading: false,
@@ -187,10 +232,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         elementLifecycle.clear()
         elementLifecycle.markLoaded(session.elements.map((el) => el.id))
         const layout = layoutIds(session)
+        hydrateGuides(session)
+        const workspace = syncWorkspace(session, layout.activePageId)
         set({
           document: session,
           ...layout,
           ...syncSelection([]),
+          workspace,
           interaction: { ...DEFAULT_INTERACTION_STATE },
           isLoading: false,
         })
@@ -219,6 +267,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setActiveLayout: (pageId, surfaceId) => {
     set({ activePageId: pageId, activeSurfaceId: surfaceId })
     eventBus.emit(documentEvents.LAYOUT_CHANGED, { pageId, surfaceId })
+    eventBus.emit(platformEvents.PageChanged, { pageId, surfaceId })
   },
 
   activatePage: (pageId) => {
@@ -235,9 +284,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({
       activePageId: pageId,
       activeSurfaceId: surfaceId,
+      workspace: syncWorkspace(doc, pageId, get().workspace.config),
       ...syncSelection([]),
     })
     eventBus.emit(documentEvents.LAYOUT_CHANGED, { pageId, surfaceId })
+    eventBus.emit(platformEvents.PageChanged, { pageId, surfaceId })
     get().fitViewport()
     return true
   },
@@ -263,6 +314,77 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       if (created) get().activatePage(created.id)
     }
     return true
+  },
+
+  deletePage: (pageId) => {
+    const id = pageId ?? get().activePageId
+    if (!id) return false
+    const ok = get().dispatch({ type: 'DeletePage', pageId: id, timestamp: Date.now() })
+    if (!ok) return false
+    const doc = get().document
+    if (!doc) return false
+    const layout = reconcileActiveLayout(doc, get().activePageId, get().activeSurfaceId)
+    set({
+      ...layout,
+      workspace: syncWorkspace(doc, layout.activePageId, get().workspace.config),
+      ...syncSelection([]),
+    })
+    get().fitViewport()
+    return true
+  },
+
+  reorderPages: (orderedIds) => {
+    const ok = get().dispatch({ type: 'ReorderPages', orderedIds, timestamp: Date.now() })
+    if (!ok) return false
+    get().rebuildWorkspace()
+    return true
+  },
+
+  rebuildWorkspace: () => {
+    const doc = get().document
+    if (!doc) return
+    set({
+      workspace: syncWorkspace(doc, get().activePageId, get().workspace.config),
+    })
+  },
+
+  setGrid: (patch) => {
+    const grid = GridEngine.create({ ...get().grid, ...patch })
+    const snapPatch =
+      grid.snap && grid.enabled
+        ? {
+            snap: {
+              ...get().interaction.snap,
+              grid: true,
+              gridSizePx: grid.sizePx / Math.max(1, grid.subdivisions),
+            },
+          }
+        : {
+            snap: {
+              ...get().interaction.snap,
+              grid: false,
+            },
+          }
+    set({
+      grid,
+      interaction: { ...get().interaction, ...snapPatch },
+    })
+  },
+
+  fitWorkspace: (smooth = true) => {
+    const { workspace, viewport } = get()
+    const target = WorkspaceEngine.fitWorkspace(
+      workspace,
+      viewport.stageWidth,
+      viewport.stageHeight,
+    )
+    if (!smooth) {
+      viewportManager.setZoom(target.zoom)
+      viewportManager.setPan(target.panX, target.panY)
+      set({ viewport: viewportManager.getState() })
+      return
+    }
+    viewportManager.animateTo(target, (next) => set({ viewport: next }))
   },
 
   insertAsset: (payload) => {
@@ -317,6 +439,15 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
           : {}
 
     const nextDoc = normalizeDocument(result.document)
+    const pageCommands = new Set(['AddPage', 'DuplicatePage', 'DeletePage', 'ReorderPages', 'LoadDocument'])
+    const workspace =
+      pageCommands.has(command.type) || !get().workspace.placements.length
+        ? syncWorkspace(nextDoc, get().activePageId, get().workspace.config)
+        : get().workspace
+
+    if (command.type === 'LoadDocument') {
+      hydrateGuides(nextDoc)
+    }
 
     recordZustandUpdate([
       'document',
@@ -325,6 +456,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     set({
       document: nextDoc,
+      workspace,
       ...selectionPatch,
       lastError: null,
     })
@@ -335,6 +467,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     if (command.type === 'SelectElement' || command.type === 'SelectElements') {
       eventBus.emit(documentEvents.ELEMENT_SELECTED, {
+        selectedIds: get().selectedIds,
+      })
+      eventBus.emit(platformEvents.SelectionChanged, {
         selectedIds: get().selectedIds,
       })
     } else if (command.type === 'DeleteElements') {
@@ -392,8 +527,54 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     get().dispatch({ type: 'TransformElement', elementId, transform, timestamp: Date.now() })
   },
 
+  transformElements: (transforms) => {
+    if (!transforms.length) return
+    get().dispatch({ type: 'TransformElements', transforms, timestamp: Date.now() })
+  },
+
   flipElement: (elementId, axis) => {
     get().dispatch({ type: 'FlipElement', elementId, axis, timestamp: Date.now() })
+  },
+
+  flipSelected: (axis) => {
+    const ids = get().selectedIds
+    if (!ids.length) return
+    if (ids.length === 1) {
+      get().flipElement(ids[0]!, axis)
+      return
+    }
+    get().dispatch({ type: 'FlipElements', elementIds: ids, axis, timestamp: Date.now() })
+  },
+
+  alignSelected: (mode) => {
+    const doc = get().document
+    const elements = get().getSelectedElements()
+    if (!doc || !elements.length) return
+    const page =
+      elements.length === 1
+        ? (() => {
+            const { widthPx, heightPx } = getDocumentPixelSize(doc.canvas)
+            return { x: 0, y: 0, width: widthPx, height: heightPx }
+          })()
+        : null
+    const moves = AlignmentGuides.align(elements, mode, page).filter((move) => {
+      const el = doc.elements.find((item) => item.id === move.elementId)
+      return el ? templateRulesEngine.can(el, 'move', doc).allowed : false
+    })
+    if (!moves.length) return
+    get().moveElements(moves)
+  },
+
+  distributeSelected: (mode) => {
+    const doc = get().document
+    const elements = get().getSelectedElements()
+    if (!doc || elements.length < 3) return
+    const moves = AlignmentGuides.distribute(elements, mode).filter((move) => {
+      const el = doc.elements.find((item) => item.id === move.elementId)
+      return el ? templateRulesEngine.can(el, 'move', doc).allowed : false
+    })
+    if (!moves.length) return
+    get().moveElements(moves)
   },
 
   updateElementProperties: (elementId, properties) => {
@@ -426,6 +607,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const elements = get().getSelectedElements()
     if (!elements.length) return
     clipboardEngine.copy(elements)
+  },
+
+  cutSelected: () => {
+    const elements = get().getSelectedElements()
+    if (!elements.length) return
+    clipboardEngine.cut(elements)
+    get().deleteSelected()
   },
 
   pasteClipboard: () => {
@@ -485,6 +673,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({
       document: doc,
       ...layout,
+      workspace: syncWorkspace(doc, layout.activePageId, get().workspace.config),
       ...(layout.activePageId !== prevPageId ? syncSelection([]) : {}),
       lastError: null,
     })
@@ -502,6 +691,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({
       document: doc,
       ...layout,
+      workspace: syncWorkspace(doc, layout.activePageId, get().workspace.config),
       ...(layout.activePageId !== prevPageId ? syncSelection([]) : {}),
       lastError: null,
     })
@@ -510,21 +700,49 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   setViewport: (viewport) => {
+    const prevZoom = get().viewport.zoom
     viewportManager.setZoom(viewport.zoom)
     viewportManager.setPan(viewport.panX, viewport.panY)
     viewportManager.setStageSize(viewport.stageWidth, viewport.stageHeight)
-    set({ viewport: viewportManager.getState() })
+    const next = viewportManager.getState()
+    set({ viewport: next })
+    if (next.zoom !== prevZoom) {
+      eventBus.emit(platformEvents.ZoomChanged, { zoom: next.zoom })
+    }
   },
 
-  fitViewport: () => {
+  fitViewport: (smooth = true) => {
     const doc = get().document
     if (!doc) return
     const layout = LayoutResolver.resolve(doc, {
       pageId: get().activePageId,
       surfaceId: get().activeSurfaceId,
     })
-    const next = viewportManager.fitToPixels(layout.paper.widthPx, layout.paper.heightPx)
-    set({ viewport: next })
+    if (!smooth) {
+      const next = viewportManager.fitToPixels(layout.paper.widthPx, layout.paper.heightPx)
+      set({ viewport: next })
+      return
+    }
+    const target = viewportManager.computeFitToPixels(
+      layout.paper.widthPx,
+      layout.paper.heightPx,
+    )
+    viewportManager.animateTo(target, (viewport) => set({ viewport }))
+  },
+
+  zoomToSelection: (smooth = true) => {
+    const elements = get().getSelectedElements()
+    const bounds = AlignmentGuides.selectionBounds(elements)
+    if (!bounds) {
+      get().fitViewport(smooth)
+      return
+    }
+    if (!smooth) {
+      set({ viewport: viewportManager.fitToBounds(bounds) })
+      return
+    }
+    const target = viewportManager.computeFitToBounds(bounds)
+    viewportManager.animateTo(target, (viewport) => set({ viewport }))
   },
 
   zoomIn: () => {
@@ -544,6 +762,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({ viewport: viewportManager.zoomAt(nextZoom, screenX, screenY) })
   },
 
+  zoomAtToggle: (screenX, screenY) => {
+    const target = viewportManager.computeZoomAtToggle(screenX, screenY)
+    viewportManager.animateTo(target, (viewport) => set({ viewport }), 160)
+  },
+
   panBy: (dx, dy) => {
     viewportManager.panBy(dx, dy)
     set({ viewport: viewportManager.getState() })
@@ -552,6 +775,19 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setInteraction: (patch) => {
     recordZustandUpdate(['interaction', ...Object.keys(patch)])
     set({ interaction: { ...get().interaction, ...patch } })
+  },
+
+  setHoveredId: (id) => {
+    const current = get().interaction
+    if (current.hoveredId === id) return
+    const mode =
+      current.mode === 'idle' || current.mode === 'hover'
+        ? id
+          ? 'hover'
+          : 'idle'
+        : current.mode
+    recordZustandUpdate(['interaction', 'hoveredId'])
+    set({ interaction: { ...current, hoveredId: id, mode } })
   },
 
   setGuides: (guides) => {
@@ -588,9 +824,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
           elementId: session.elementId,
           meta: session.meta,
         },
-        mode: 'idle',
+        mode: 'editing',
         marquee: null,
         guides: [],
+        hoveredId: null,
       },
       lastError: null,
     })
@@ -602,32 +839,58 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       interaction: {
         ...get().interaction,
         session: { ...IDLE_INTERACTION_SESSION },
+        mode: 'idle',
       },
     })
   },
 
   snapMove: (elementId, x, y) => {
     const doc = get().document
-    const { interaction } = get()
+    const { interaction, selectedIds } = get()
     if (!doc || !interaction.snap.enabled) {
       return { x, y, guides: [] }
     }
     const el = doc.elements.find((item) => item.id === elementId)
     if (!el) return { x, y, guides: [] }
 
-    const targets = SnappingEngine.collectTargets(doc, [elementId], interaction.snap)
-    const result = SnappingEngine.snapBox(
-      {
-        id: elementId,
-        x,
-        y,
-        width: Math.abs(el.transform.width * el.transform.scaleX),
-        height: Math.abs(el.transform.height * el.transform.scaleY),
-      },
-      targets,
-      interaction.snap,
+    const movingIds = selectedIds.includes(elementId) ? selectedIds : [elementId]
+    const targets = SnappingEngine.collectTargets(doc, movingIds, interaction.snap, {
+      persistentGuides: interaction.snap.persistentGuides
+        ? guidesEngine
+            .snapTargets(get().activePageId)
+            .map((t) => ({
+              id: t.id,
+              orientation: t.orientation,
+              position: t.position,
+              label: undefined,
+              locked: false,
+              visible: true,
+            }))
+        : [],
+    })
+    const box = {
+      id: elementId,
+      x,
+      y,
+      width: Math.abs(el.transform.width * el.transform.scaleX),
+      height: Math.abs(el.transform.height * el.transform.scaleY),
+    }
+    const result = SnappingEngine.snapBox(box, targets, interaction.snap)
+    const others = doc.elements
+      .filter((item) => item.visible && !movingIds.includes(item.id))
+      .map((item) => ({
+        id: item.id,
+        x: item.transform.x,
+        y: item.transform.y,
+        width: Math.abs(item.transform.width * item.transform.scaleX),
+        height: Math.abs(item.transform.height * item.transform.scaleY),
+      }))
+    const spacing = SnappingEngine.detectSpacingGuides(
+      { ...box, x: result.x, y: result.y },
+      others,
+      interaction.snap.thresholdPx,
     )
-    return result
+    return { ...result, guides: [...result.guides, ...spacing] }
   },
 
   exportJson: () => {
@@ -641,9 +904,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       const doc = normalizeDocument(importDocument(json))
       historyEngine.clear()
       elementLifecycle.markLoaded(doc.elements.map((el) => el.id))
+      const layout = layoutIds(doc)
+      hydrateGuides(doc)
       set({
         document: doc,
-        ...layoutIds(doc),
+        ...layout,
+        workspace: syncWorkspace(doc, layout.activePageId, get().workspace.config),
         ...syncSelection([]),
         lastError: null,
       })

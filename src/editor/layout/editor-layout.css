@@ -17,10 +17,36 @@
 
 .eko-editor-layout__workspace {
   display: grid;
-  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) minmax(240px, 320px);
+  grid-template-columns:
+    var(--eko-left-width, 260px)
+    6px
+    minmax(0, 1fr)
+    6px
+    var(--eko-right-width, 320px);
   min-height: 0;
   height: 100%;
   overflow: hidden;
+}
+
+.eko-editor-layout__resizer {
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background var(--eko-anim-fast, 120ms) ease;
+}
+
+.eko-editor-layout__resizer:hover,
+.eko-editor-layout__resizer:focus-visible {
+  background: color-mix(in srgb, var(--eko-accent, #0f6b4c) 35%, transparent);
+}
+
+.eko-editor-layout__canvas-overlay {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  z-index: 5;
+  transform: translateX(-50%);
+  pointer-events: auto;
 }
 
 .eko-editor-layout__left,
@@ -152,11 +178,17 @@
 }
 
 .eko-left-sidebar__tabs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0;
+  display: block;
+  padding: 0.45rem;
   border-bottom: 1px solid var(--line, #c9d6e5);
-  background: #eef3f8;
+  background: color-mix(in srgb, var(--eko-line, #c9d6e5) 35%, transparent);
+  overflow-x: auto;
+}
+
+.eko-left-sidebar__tabs .eko-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: max-content;
 }
 
 .eko-left-sidebar__tab {
@@ -283,7 +315,16 @@
 
 @media (max-width: 960px) {
   .eko-editor-layout__workspace {
-    grid-template-columns: 200px minmax(0, 1fr) 220px;
+    grid-template-columns:
+      minmax(180px, var(--eko-left-width, 200px))
+      0
+      minmax(0, 1fr)
+      0
+      minmax(180px, var(--eko-right-width, 220px));
+  }
+
+  .eko-editor-layout__resizer {
+    display: none;
   }
 }
 
@@ -291,6 +332,10 @@
   .eko-editor-layout__workspace {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto auto;
+  }
+
+  .eko-editor-layout__resizer {
+    display: none;
   }
 
   .eko-editor-layout__left,

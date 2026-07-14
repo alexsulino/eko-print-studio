@@ -3,7 +3,8 @@ import { Stage, Layer, Rect } from 'react-konva'
 import type Konva from 'konva'
 import { templateRulesEngine } from '@/core/rules/TemplateRulesEngine'
 import { SelectionEngine } from '@/core/selection/SelectionEngine'
-import { resolveCanvasSelection, describeTransformCommand } from '@/editor/canvas'
+import { AlignmentGuides } from '@/core/alignment/AlignmentGuides'
+import { resolveCanvasSelection, describeTransformCommands } from '@/editor/canvas'
 import { viewportManager } from '@/core/viewport/ViewportManager'
 import { LayoutResolver, RendererAdapter } from '@/core/layout'
 import { markRenderStart, recordRendererMetrics } from '@/diagnostics/editorDiagnostics'
@@ -29,6 +30,7 @@ import { ObjectLayer } from './ObjectLayer'
 import { SelectionTransformer } from './SelectionTransformer'
 import { GuidesLayer } from './GuidesLayer'
 import { RegionsLayer } from './RegionsLayer'
+import { GridLayer } from './GridLayer'
 import { applyNodeRefToMap } from './hooks/konvaNodeRefRegistry'
 import { useKonvaNodeRefRegistry } from './hooks/useKonvaNodeRefRegistry'
 import { AssetResolverProvider } from './assets/AssetResolverProvider'
@@ -44,28 +46,46 @@ function stageSize(width: number, height: number) {
 
 const devRenderTrace = import.meta.env.DEV
 
+function stageCursor(mode: string, tool: string, spacePressed: boolean): string {
+  if (tool === 'hand' || spacePressed || mode === 'panning') return 'grab'
+  if (mode === 'dragging') return 'move'
+  if (mode === 'rotating') return 'crosshair'
+  if (mode === 'resizing') return 'nwse-resize'
+  if (mode === 'marquee') return 'crosshair'
+  if (tool === 'text') return 'text'
+  return 'default'
+}
+
 export function CanvasEditor() {
   const containerRef = useRef<HTMLDivElement>(null)
   const nodeMapRef = useRef(new Map<string, Konva.Node>())
   const [nodeMapVersion, setNodeMapVersion] = useState(0)
-  const [keepRatio, setKeepRatio] = useState(false)
   const panLastRef = useRef<{ x: number; y: number } | null>(null)
   const fittedOnceRef = useRef(false)
+  const marqueeModifiersRef = useRef<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }>({
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+  })
 
   const document = useEditorStore((s) => s.document)
   const activePageId = useEditorStore((s) => s.activePageId)
   const activeSurfaceId = useEditorStore((s) => s.activeSurfaceId)
   const selectedIds = useEditorStore((s) => s.selectedIds)
   const viewport = useEditorStore((s) => s.viewport)
+  const workspace = useEditorStore((s) => s.workspace)
+  const grid = useEditorStore((s) => s.grid)
   const interaction = useEditorStore((s) => s.interaction)
   const selectElements = useEditorStore((s) => s.selectElements)
   const moveElement = useEditorStore((s) => s.moveElement)
-  const transformElement = useEditorStore((s) => s.transformElement)
+  const transformElements = useEditorStore((s) => s.transformElements)
   const setViewport = useEditorStore((s) => s.setViewport)
   const fitViewport = useEditorStore((s) => s.fitViewport)
   const zoomAt = useEditorStore((s) => s.zoomAt)
+  const zoomAtToggle = useEditorStore((s) => s.zoomAtToggle)
   const panBy = useEditorStore((s) => s.panBy)
   const setInteraction = useEditorStore((s) => s.setInteraction)
+  const setHoveredId = useEditorStore((s) => s.setHoveredId)
   const setGuides = useEditorStore((s) => s.setGuides)
   const clearGuides = useEditorStore((s) => s.clearGuides)
   const snapMove = useEditorStore((s) => s.snapMove)
@@ -75,6 +95,7 @@ export function CanvasEditor() {
   const session = interaction.session
   const textEditActive = isInteractionSession(session, 'textEdit')
   const editingElementId = textEditActive ? session.elementId : null
+  const keepRatio = interaction.keepRatio
 
   useKeyboardEngine(Boolean(document))
 
@@ -198,7 +219,7 @@ export function CanvasEditor() {
 
       if (useEditorStore.getState().document && (sizeChanged || !fittedOnceRef.current)) {
         fittedOnceRef.current = true
-        fitViewport()
+        fitViewport(false)
       }
     },
     [fitViewport, setViewport],
@@ -232,21 +253,6 @@ export function CanvasEditor() {
     }
   }, [applyContainerSize])
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.shiftKey) setKeepRatio(true)
-    }
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (!e.shiftKey) setKeepRatio(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
-    }
-  }, [])
-
   const handleObjectSelect = useCallback(
     (id: string, modifiers: { ctrlKey: boolean; shiftKey: boolean; metaKey: boolean }) => {
       const ids = useEditorStore.getState().selectedIds
@@ -254,6 +260,15 @@ export function CanvasEditor() {
       selectElements(next)
     },
     [selectElements],
+  )
+
+  const handleObjectHover = useCallback(
+    (id: string | null) => {
+      const mode = useEditorStore.getState().interaction.mode
+      if (mode !== 'idle' && mode !== 'hover') return
+      setHoveredId(id)
+    },
+    [setHoveredId],
   )
 
   const handleObjectDragMove = useCallback(
@@ -359,8 +374,11 @@ export function CanvasEditor() {
 
   const handMode = interaction.tool === 'hand' || interaction.spacePressed
 
-  const primary = selectedIds[selectedIds.length - 1] ?? null
-  const selectedElement = document?.elements.find((el) => el.id === primary) ?? null
+  const selectedElements = document
+    ? selectedIds
+        .map((id) => document.elements.find((el) => el.id === id))
+        .filter((el): el is NonNullable<typeof el> => Boolean(el))
+    : []
   const editingTextElement =
     editingElementId && document
       ? document.elements.find(
@@ -368,12 +386,25 @@ export function CanvasEditor() {
             el.id === editingElementId && el.type === 'text',
         )
       : null
-  const canResize = selectedElement
-    ? templateRulesEngine.can(selectedElement, 'resize', document ?? undefined).allowed
-    : false
-  const canRotate = selectedElement
-    ? templateRulesEngine.can(selectedElement, 'rotate', document ?? undefined).allowed
-    : false
+  const canResize =
+    selectedElements.length > 0 &&
+    selectedElements.every((el) =>
+      templateRulesEngine.can(el, 'resize', document ?? undefined).allowed,
+    )
+  const canRotate =
+    selectedElements.length > 0 &&
+    selectedElements.every((el) =>
+      templateRulesEngine.can(el, 'rotate', document ?? undefined).allowed,
+    )
+
+  const hoveredRect = useMemo(() => {
+    if (!document || !interaction.hoveredId) return null
+    if (selectedIds.includes(interaction.hoveredId)) return null
+    if (interaction.mode !== 'idle' && interaction.mode !== 'hover') return null
+    const el = document.elements.find((item) => item.id === interaction.hoveredId)
+    if (!el) return null
+    return AlignmentGuides.fromTransform(el.transform)
+  }, [document, interaction.hoveredId, interaction.mode, selectedIds])
 
   if (!document || !frame || !viewDocument) {
     return <div className="canvas-empty">Preparando canvas…</div>
@@ -391,6 +422,7 @@ export function CanvasEditor() {
       className={`canvas-shell${handMode ? ' canvas-shell--hand' : ''}`}
       ref={containerRef}
       tabIndex={0}
+      style={{ cursor: stageCursor(interaction.mode, interaction.tool, interaction.spacePressed) }}
     >
       <Stage
         width={stageWidth}
@@ -411,6 +443,15 @@ export function CanvasEditor() {
 
           panBy(-e.evt.deltaX, -e.evt.deltaY)
         }}
+        onDblClick={(e) => {
+          if (handMode) return
+          if (e.target !== e.target.getStage()) return
+          const stage = e.target.getStage()
+          if (!stage) return
+          const pos = stage.getPointerPosition()
+          if (!pos) return
+          zoomAtToggle(pos.x, pos.y)
+        }}
         onMouseDown={(e) => {
           const stage = e.target.getStage()
           if (!stage) return
@@ -424,7 +465,13 @@ export function CanvasEditor() {
           }
 
           if (e.target === stage) {
+            marqueeModifiersRef.current = {
+              ctrlKey: e.evt.ctrlKey,
+              metaKey: e.evt.metaKey,
+              shiftKey: e.evt.shiftKey,
+            }
             const docPoint = toDoc(pos.x, pos.y)
+            setHoveredId(null)
             setInteraction({
               mode: 'marquee',
               marquee: { x1: docPoint.x, y1: docPoint.y, x2: docPoint.x, y2: docPoint.y },
@@ -476,12 +523,18 @@ export function CanvasEditor() {
                 width: Math.abs(el.transform.width * el.transform.scaleX),
                 height: Math.abs(el.transform.height * el.transform.scaleY),
               }))
-            const ids = SelectionEngine.fromMarquee(boxes, interaction.marquee)
-            selectElements(ids)
+            const hitIds = SelectionEngine.fromMarquee(boxes, interaction.marquee)
+            const next = SelectionEngine.applyMarquee(
+              useEditorStore.getState().selectedIds,
+              hitIds,
+              marqueeModifiersRef.current,
+            )
+            selectElements(next)
             setInteraction({ mode: 'idle', marquee: null })
           }
         }}
         onMouseLeave={() => {
+          setHoveredId(null)
           if (interaction.mode === 'panning') {
             panLastRef.current = null
             setInteraction({ mode: 'idle' })
@@ -489,6 +542,15 @@ export function CanvasEditor() {
         }}
       >
         <Layer x={viewport.panX} y={viewport.panY} scaleX={viewport.zoom} scaleY={viewport.zoom}>
+          {/* Infinite pasteboard — workspace world, independent of document elements */}
+          <Rect
+            x={workspace.bounds.x - workspace.activeOrigin.x}
+            y={workspace.bounds.y - workspace.activeOrigin.y}
+            width={workspace.bounds.width}
+            height={workspace.bounds.height}
+            fill={workspace.config.background}
+            listening={false}
+          />
           <Rect
             x={0}
             y={0}
@@ -500,12 +562,19 @@ export function CanvasEditor() {
             shadowOpacity={0.35}
             listening={false}
           />
+          <GridLayer
+            width={pixelSize.widthPx}
+            height={pixelSize.heightPx}
+            grid={grid}
+            zoom={viewport.zoom}
+          />
           <RegionsLayer regions={frame.regions} />
           <ObjectLayer
             document={viewDocument}
             listening={!handMode && !textEditActive}
             editingElementId={editingElementId}
             onSelect={handleObjectSelect}
+            onHover={handleObjectHover}
             onDragMove={handleObjectDragMove}
             onDragEnd={handleObjectDragEnd}
             onEditStart={handleTextEditStart}
@@ -514,6 +583,7 @@ export function CanvasEditor() {
           <GuidesLayer
             guides={interaction.guides}
             marquee={interaction.marquee}
+            hoveredRect={hoveredRect}
             documentWidth={pixelSize.widthPx}
             documentHeight={pixelSize.heightPx}
           />
@@ -522,13 +592,17 @@ export function CanvasEditor() {
               selectedIds={selectedIds}
               nodeMap={nodeMapRef.current}
               nodeMapVersion={nodeMapVersion}
-              resizeEnabled={canResize && selectedIds.length === 1}
-              rotateEnabled={canRotate && selectedIds.length === 1}
+              resizeEnabled={canResize}
+              rotateEnabled={canRotate}
               keepRatio={keepRatio}
-              onTransformEnd={(payload) => {
-                const command = describeTransformCommand(payload)
-                transformElement(command.elementId, command.transform)
+              onTransformStart={(kind) => {
+                setInteraction({ mode: kind })
+              }}
+              onTransformEnd={(payloads) => {
+                const transforms = describeTransformCommands(payloads)
+                transformElements(transforms)
                 clearGuides()
+                setInteraction({ mode: 'idle' })
               }}
             />
           ) : null}

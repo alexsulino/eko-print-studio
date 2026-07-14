@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
+import { registerDiagnosticsToggle } from '@/hooks/useKeyboardEngine'
 
 const isDev = import.meta.env.DEV
 
 /**
  * Dev-only toggle for the Eko Diagnostics panel (Ctrl+Shift+D).
- * No-op in production builds.
+ * Shortcut is owned by KeyboardEngine; this hook only holds panel state.
  */
 export function useDiagnosticsMode(): {
   open: boolean
@@ -15,19 +16,9 @@ export function useDiagnosticsMode(): {
 
   useEffect(() => {
     if (!isDev) return
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'd') {
-        event.preventDefault()
-        setOpen((prev) => !prev)
-      }
-      if (event.key === 'Escape') {
-        setOpen(false)
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    const toggle = () => setOpen((prev) => !prev)
+    registerDiagnosticsToggle(toggle)
+    return () => registerDiagnosticsToggle(null)
   }, [])
 
   if (!isDev) {
