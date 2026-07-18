@@ -32,6 +32,8 @@ start/autosave/finalize
 
 O manager SDK **não** conhece WooCommerce — só a interface. localStorage não é o mecanismo principal quando as credenciais REST estão presentes.
 
+> **Arquitetura (ADR-0002):** no PHP, toda gravação de JSON em meta (`_eko_session_record`, `_eko_session_document`, order item JSON) passa por `JsonMetaPersistence` (`wp_slash` + invariante). Nunca `update_post_meta($json)` cru. Ver [ADR-0002](../architecture/ADR-0002-wordpress-json-persistence.md) e [CONTRIBUTING](../../CONTRIBUTING.md).
+
 ## Export / preview (produção)
 
 No boot commerce, `createSessionExport({ includeRaster: true })` configura **CompositeExportProvider** (Domain + Raster).
@@ -49,15 +51,15 @@ O contract de Persistence **não muda**: apenas recebe o preview já produzido.
 
 ```text
 finalize → postMessage woocommerce.cart.add { preview, customizationId, lifecycleStatus }
-  → host-bridge salva estado PDP (sessionStorage) + renderiza miniatura oficial
-  → REST add-to-cart (reusa linha se mesmo sessionId / customizationId)
+  → host-bridge atualiza cache UX opcional (sessionStorage) + painel PDP
+  → REST add-to-cart (reusa linha se mesmo customizationId)
   → SessionRepository.lifecycle = cart_attached
   → CartPersistence / checkout / order meta `_eko_preview` + `_eko_customization_id`
 ```
 
 | Superfície | Fonte da imagem |
 |------------|-----------------|
-| PDP | `record.preview` do payload (host-bridge) |
+| PDP | Customization remota (com cache UX opcional no host-bridge) |
 | Carrinho / mini-cart / checkout | `cart_item.eko_personalization.preview` |
 | Pedido (admin) | `_eko_preview` / `cart.preview` |
 
@@ -65,7 +67,7 @@ Sem regeneração no PHP. Pedidos sem raster mantêm badge/legado.
 
 ## Customization (ciclo de vida no Woo)
 
-O SDK traz a entidade **Customization**; o Woo só **referencia** ids:
+O SDK traz a entidade **Customization**; o Woo **persiste e resolve** a entidade oficial. `sessionStorage` no host-bridge é **somente cache UX** — nunca a fonte da verdade da reedição.
 
 ```text
 created → editing → saved → finalized → cart_attached → ordered
@@ -73,12 +75,24 @@ created → editing → saved → finalized → cart_attached → ordered
                          ↗ reabrir (Editar Personalização) → editing
 ```
 
+### Reedição (fonte oficial)
+
+```text
+Click Editar (PDP / carrinho / checkout / admin)
+  → hint opcional (data-customization-id | cache sessionStorage)
+  → REST: product-context | GET /customizations/{id} | GET /products/{id}/customization
+  → CustomizationResolver (carrinho WC → SessionRepository CPT → order meta)
+  → URL do editor com customizationId + sessionId
+  → bootCommerceFromUrl → CommerceProvider.start({ customizationId, sessionId })
+  → openPersonalization → resume(sessionId)   // nunca start() se Customization válida
+```
+
 | Momento | Identificadores |
 |---------|-----------------|
-| Abrir editor | `sessionId` na URL (= `customizationId` em v1) |
-| Editar Personalização | host-bridge reusa `customizationId` / `sessionId` do sessionStorage |
-| Carrinho | `eko_personalization.sessionId` + `.customizationId` + `.lifecycleStatus` |
-| Pedido | `_eko_session_id`, `_eko_customization_id`, `_eko_customization_lifecycle=ordered` |
+| Abrir / reabrir editor | `customizationId` + `sessionId` na URL (iguais em v1) |
+| Editar Personalização | resolve Customization via REST; cache só acelera UX |
+| Carrinho | `eko_personalization.customizationId` (+ botão `data-eko-edit-customization`) |
+| Pedido | `_eko_customization_id`, `_eko_session_id`; admin via `/order-payload` + `customization` |
 
 Registros antigos com apenas `sessionId` migram em leitura (`customizationId = sessionId`).
 

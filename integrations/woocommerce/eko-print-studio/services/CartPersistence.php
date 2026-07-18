@@ -37,12 +37,14 @@ final class CartPersistence {
 		}
 
 		$cart_item_data[Settings::CART_KEY] = $result['payload'];
-		$cart_item_data['unique_key'] = md5((string) $result['payload']['sessionId']);
+		$unique = (string) ($result['payload']['customizationId'] ?? $result['payload']['sessionId'] ?? '');
+		$cart_item_data['unique_key'] = md5($unique !== '' ? $unique : (string) $result['payload']['sessionId']);
 
 		AuditLog::record('cart.updated', [
-			'sessionId'  => $result['payload']['sessionId'],
-			'product_id' => $product_id,
-			'variation'  => $variation_id,
+			'sessionId'       => $result['payload']['sessionId'],
+			'customizationId' => $result['payload']['customizationId'] ?? $result['payload']['sessionId'],
+			'product_id'      => $product_id,
+			'variation'       => $variation_id,
 		]);
 
 		return $cart_item_data;
@@ -90,9 +92,23 @@ final class CartPersistence {
 		if (empty($cart_item[Settings::CART_KEY]) || !is_array($cart_item[Settings::CART_KEY])) {
 			return $name;
 		}
-		$art = PreviewPresenter::document_name($cart_item[Settings::CART_KEY]);
+		$payload = $cart_item[Settings::CART_KEY];
+		$art = PreviewPresenter::document_name($payload);
 		$badge = '<span class="eko-ps-cart-preview-badge">' . esc_html__('Personalizado', 'eko-print-studio') . '</span>';
-		return $name . ' <span class="eko-ps-cart-art-name">(' . esc_html($art) . ')</span> ' . $badge;
+		$customization_id = (string) ($payload['customizationId'] ?? $payload['sessionId'] ?? '');
+		$session_id = (string) ($payload['sessionId'] ?? $customization_id);
+		$product_id = (string) ($payload['product']['productId'] ?? $cart_item['product_id'] ?? '');
+		$edit = '';
+		if ($customization_id !== '' && $product_id !== '') {
+			$edit = sprintf(
+				' <button type="button" class="button eko-ps-edit-customization" data-eko-edit-customization data-customization-id="%1$s" data-session-id="%2$s" data-product-id="%3$s">%4$s</button>',
+				esc_attr($customization_id),
+				esc_attr($session_id),
+				esc_attr($product_id),
+				esc_html__('Editar Personalização', 'eko-print-studio')
+			);
+		}
+		return $name . ' <span class="eko-ps-cart-art-name">(' . esc_html($art) . ')</span> ' . $badge . $edit;
 	}
 
 	/**

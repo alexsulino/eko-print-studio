@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "note": "Bump schema version strings and this fingerprint together. Fitness 5 fails if source drifts without updating this file.",
+  "schemas": {
+    "cart": "eko.commerce.cart/1",
+    "order": "eko.commerce.order/1",
+    "session": "eko.persistence.session/1",
+    "document": "eko.persistence.document/1",
+    "customization": "eko.customization/1"
+  },
+  "cartRequiredFields": [
+    "sessionId",
+    "documentId",
+    "masterId",
+    "product",
+    "documentJson",
+    "preview",
+    "savedAt",
+    "summary"
+  ],
+  "lifecycleStatuses": [
+    "created",
+    "editing",
+    "saved",
+    "finalized",
+    "cart_attached",
+    "ordered",
+    "cancelled"
+  ],
+  "restRouteFragments": [
+    "/product-context/",
+    "/validate-cart",
+    "/add-to-cart",
+    "/customizations/",
+    "/products/",
+    "/order-payload/",
+    "/sessions",
+    "/documents/"
+  ]
+}

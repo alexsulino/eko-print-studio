@@ -4,6 +4,157 @@ All notable changes to Eko Print Studio are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/), and this project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — Functional stabilization patches (cart/order edit)
+
+### Fixed
+
+- `product_context`: explicit customization hint no longer falls back to `for_product` (wrong cart line)
+- `host-bridge` cart Edit: resume only if resolved id matches button hint (else GET by id / fail)
+- Admin order: same `data-eko-edit-customization` + `data-product-id` as cart; `admin-reopen` uses `startFromCartEdit` + `product-context` token
+
+## [Unreleased] — Conservative Woo cart/order reopen fixes (no architecture change)
+
+### Fixed
+
+- `host-bridge.js` SyntaxError left by TEMP-log removal (broken `listenForPayload` / cart-edit click handler) — cart Edit and add-to-cart messaging were dead
+- PDP after `cart_attached` no longer forces resume of the first product customization — "Personalizar" starts a **new** Customization (Maria + João as separate cart lines); cart Edit still resumes the line id
+- Admin order reopen panel: decode `_eko_commerce_order` when meta is already an array; fallback to scalar metas so **Reabrir Personalização** still renders; `order-payload` REST same resilience
+- `admin-reopen.js` now fetches `product-context` and passes `restUrl` + `persistenceToken` (same as cart Edit) so resume loads CPT `documentJson` instead of Local-only
+
+### Not changed
+
+- Save / Resume / Finalize / lifecycle / JsonMetaPersistence / SessionRepository / REST payload schemas / cart unique_key-by-customizationId replace-same-line behavior
+
+## [Unreleased] — Level 4 architecture governance (no behavior change)
+
+### Added
+
+- `docs/architecture/RELEASE_POLICY.md` — release ladder Nível 0 → Produção
+- `docs/architecture/QUALITY_PIPELINE.md` — ideal gates vs current scripts (missing scripts documented, not invented)
+- `docs/architecture/GOVERNANCE.md` — owners + critical-area coverage matrix
+- `docs/architecture/LESSONS_LEARNED.md` — LL-001…LL-012 permanent engineering memory
+- `docs/architecture/ARCHITECTURE_STATUS.md` — executive status, audit, maturity ratings
+- `docs/architecture/ADR-0004-official-commerce-flow.md` — official commerce flow freeze
+- ADR-0003 Phase 7 review answers for L1–L7 (can wait; no quick-fix)
+
+### Changed
+
+- Stability verdict elevated to **Nível 4 — Arquiteturalmente blindado** (governance-blinded; residual risks ADR-managed)
+- `FUTURE_IMPROVEMENTS.md` refreshed classifications; completed SEGURO items marked done
+- FITNESS-12 requires full Level-4 constitution doc package
+
+## [Unreleased] — Architecture constitution hardening (no behavior change)
+
+### Added
+
+- `docs/architecture/CONTRACTS.md` — explicit immutable contracts (REST, SDK, Host, payloads, lifecycle, IDs)
+- `docs/architecture/HISTORICAL_REGRESSIONS.md` — HR-01…HR-19 permanent shields registry
+- `docs/architecture/RISK_MATRIX.md` — component risk SIM/NÃO matrix
+- `docs/architecture/FUTURE_IMPROVEMENTS.md` — classified backlog (never auto-implement)
+- `docs/architecture/STABILITY.md` — stability levels
+- `docs/architecture/ADR-0003-known-limitations.md` — L1–L7 documented (token, races, dual-store, coerce)
+- Invariants **INV-11** (no TEMP debug), **INV-12** (official flow immutable), **INV-13** (PDP HTML escape)
+- FITNESS-11 / FITNESS-12; `tests/architecture/HistoricalRegressions.test.ts`
+
+### Changed
+
+- Removed TEMP `[LOAD]` / `[EDIT]` runtime debug from Composite, Woo persistence provider, and host-bridge
+- Host-bridge PDP status escapes user/document text before `innerHTML` (security shield only)
+- `architecture:verify` includes Historical Regressions suite
+
+## [Unreleased] — Architecture Fitness Functions
+
+### Added
+
+- `docs/architecture/SYSTEM_GUARANTEES.md` — official platform guarantees (G1–G10)
+- `tests/architecture/FitnessFunctions.test.ts` — structural fitness functions (CI auto-audit)
+- `tests/architecture/fixtures/rest-contract-fingerprint.json` — frozen REST/lifecycle contract
+- `npm run architecture:verify` — quality gate with Architecture Status report
+- `.github/workflows/architecture.yml` — PR/push must pass architecture verify
+
+## [Unreleased] — Architectural Invariants constitution
+
+### Added
+
+- `docs/architecture/invariants.md` — permanent constitution (INV-1…INV-10)
+- `tests/architecture/ArchitecturalInvariants.test.ts` — CI regression shield
+- `.github/PULL_REQUEST_TEMPLATE.md` — INV-10 architectural gate checklist
+
+### Changed
+
+- INV-9 enforced in `App.tsx`: commerce boot failure surfaces explicit error — **no** silent standalone / `.eko.json` fallback
+- README / CONTRIBUTING / architecture index point to invariants as highest-priority contract
+
+## [Unreleased] — WordPress JSON meta slash fix (v0.8.11)
+
+### Fixed
+
+- `_eko_session_record` / `_eko_session_document` corrupted on save: `update_post_meta` applies `wp_unslash`, which stripped JSON escapes (`\"`, `\\`) and made `json_decode` fail with "Syntax error" (~44KB records with preview/base64)
+- Downstream symptoms: `load_post` → null, upsert persist verification → 500 `eko_persist_failed`, `resume()` / cart re-edit broken despite valid CPT lookup
+
+### Changed
+
+- Official helper `JsonMetaPersistence` is the **only** allowed path for JSON meta writes (post meta + order item meta)
+- `SessionRepository` / `OrderPersistence` delegate all JSON persistence to the helper (encode → `wp_slash` → store → re-read / integrity)
+- ADR-0002 + CONTRIBUTING rules; regression tests for slash invariant and architectural audit
+
+### Notes
+
+- This is permanent architecture — changing slash policy requires a replacement ADR
+
+## [Unreleased] — Canonical session identity (v0.8.10)
+
+### Fixed
+
+- Divergence `record.id` ≠ `_eko_session_id` that made `product-context` succeed while `GET /sessions/{id}` / `resume()` returned 404
+- Commerce boot falling back to standalone (`.eko.json` Save) after a failed `resume` for a real repository Customization
+
+### Changed
+
+- `SessionRepository`: every upsert syncs `_eko_session_id`, `_eko_customization_id`, `_eko_session_record`, `post_title` to the same canonical id
+- `find_post_id` / `get` resolve via `_eko_session_id` | `_eko_customization_id` | title; `load_post` / `list_by_product` heal misaligned metas
+- `CustomizationResolver` views always emit `sessionId === customizationId` (v1)
+- `PUT /sessions/{id}` rejects path/body id mismatch; App commerce gate also reads `customizationId`
+
+### Notes
+
+- Contract restored: `record.id === _eko_session_id === customizationId === sessionId` for product-context, GET, resume, cart
+
+## [Unreleased] — Session persist consistency (v0.8.9)
+
+### Changed
+
+- `SessionRepository::upsert` throws when CPT creation/verification fails; `put_session` returns **500** + audit `session.persist_failed`
+- `CompositePersistenceProvider.saveSession` still mirrors to Local on Woo failure (`LOCAL_ONLY`) but **rethrows** — no commercial false positive
+- `WooCommercePersistenceProvider.saveSession` requires PUT **200** with matching `record.id` (server verifies CPT; no fragile immediate GET)
+
+### Notes
+
+- Fallback Local remains for offline recovery; only `PERSISTED_REMOTE` counts as commercial persistence success
+- Save/finalize cannot complete commercially without remote success → orphan `sessionId` never reaches cart via the happy path
+- Customization → Commerce → resume architecture unchanged
+
+## [Unreleased] — Reopen via Customization (v0.8.8)
+
+### Added
+
+- `CustomizationResolver` (Woo) — official lookup by id / product / cart / order item
+- REST `GET /customizations/{id}` and `GET /products/{id}/customization`
+- Cart/checkout **Editar Personalização** (`data-eko-edit-customization` + `customizationId`)
+
+### Changed
+
+- Reedição no longer treats host `sessionStorage` as source of truth (optional UX cache only)
+- `product-context` returns resolved `customization` / ids; empty `sessionId` when none exists
+- Host-bridge hydrates PDP from REST; opens editor only after Customization → `sessionId` for `resume()`
+- Editor shell + admin reopen forward `customizationId` alongside `sessionId`
+- `bootCommerceFromUrl` / `HostCommerceProvider` prefer `customizationId` then `sessionId`
+
+### Notes
+
+- SDK + CommerceProvider contracts preserved; v1 still has `customizationId === sessionId`
+- Works after F5, new tab, cart, order, login/logout, and other browsers when Customization persists
+
 ## [Unreleased] — CommerceProvider (v0.8.7)
 
 ### Added

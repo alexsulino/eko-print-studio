@@ -31,6 +31,7 @@ import {
 } from '@/ui'
 import type { CommerceProvider } from '@/core/platform/providers'
 import { bootCommerceFromUrl } from '@/providers/commerce'
+import { getCommerceBootStage } from '@/providers/commerce/commerceBootStage'
 import { localDocumentProvider } from '@/providers/LocalDocumentProvider'
 import { LocalPersistenceProvider } from '@/providers/LocalPersistenceProvider'
 import { createSessionExport } from '@/providers/export'
@@ -57,6 +58,7 @@ function CreatorApp() {
   const bootstrappedRef = useRef(false)
   const commerceProviderRef = useRef<CommerceProvider | null>(null)
   const [commerceMode, setCommerceMode] = useState(false)
+  const [commerceBootError, setCommerceBootError] = useState<string | null>(null)
   const { open: diagnosticsOpen, setOpen: setDiagnosticsOpen } = useDiagnosticsMode()
   const { mode, setMode } = useThemeMode('canva')
 
@@ -68,24 +70,36 @@ function CreatorApp() {
     if (bootstrappedRef.current) return
     bootstrappedRef.current = true
     const params = new URLSearchParams(window.location.search)
-    const isCommerce = Boolean(params.get('templateId') || params.get('sessionId'))
+    const isCommerce = Boolean(
+      params.get('templateId') || params.get('sessionId') || params.get('customizationId'),
+    )
     if (!isCommerce) {
       void editor.bootstrap()
       return
     }
+    // INV-9: commerce intent → success or explicit error; never silent standalone.
     void bootCommerceFromUrl({ editor })
       .then((result) => {
         if (!result) {
-          void editor.bootstrap()
+          setCommerceBootError(
+            'Commerce boot failed: missing templateId/sessionId/customizationId resolution.',
+          )
           return
         }
         commerceProviderRef.current = result.provider
         setCommerceMode(true)
+        setCommerceBootError(null)
         const theme = params.get('theme') as 'canva' | 'light' | 'dark' | null
         if (theme) setMode(theme)
       })
-      .catch(() => {
-        void editor.bootstrap()
+      .catch((error: unknown) => {
+        const stage = getCommerceBootStage(error) ?? 'unknown'
+        const message = error instanceof Error ? error.message : String(error)
+        console.error('[EkoPrintStudio] Commerce boot failed (INV-9: no standalone fallback)', {
+          stage,
+          error,
+        })
+        setCommerceBootError(`Commerce boot failed (${stage}): ${message}`)
       })
   }, [editor, setMode])
 
@@ -108,6 +122,14 @@ function CreatorApp() {
         session.saveLocalDownload()
       }
     : undefined
+
+  const canvasMessage = commerceBootError
+    ? commerceBootError
+    : snap.lastError
+      ? snap.lastError
+      : commerceMode
+        ? 'Abrindo personalização…'
+        : 'Abrindo template…'
 
   return (
     <div className="editor-app">
@@ -157,10 +179,8 @@ function CreatorApp() {
           />
         }
         canvas={
-          snap.isLoading || !document ? (
-            <div className="canvas-empty">
-              {snap.lastError ? snap.lastError : commerceMode ? 'Abrindo personalização…' : 'Abrindo template…'}
-            </div>
+          snap.isLoading || !document || commerceBootError ? (
+            <div className="canvas-empty">{canvasMessage}</div>
           ) : (
             <ErrorBoundary region="canvas">
               <CanvasEditor />

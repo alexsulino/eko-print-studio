@@ -7,6 +7,13 @@ import type {
   SessionPersistenceProvider,
 } from '@/core/platform/providers'
 
+/**
+ * Outcome of the last saveSession() on a composite commerce stack.
+ * LOCAL_ONLY means fallback wrote the session but remote (Woo) did not —
+ * never treated as commercial persistence success (saveSession still throws).
+ */
+export type SessionPersistOutcome = 'PERSISTED_REMOTE' | 'LOCAL_ONLY' | 'FAILED'
+
 export interface CompositePersistenceProviderOptions {
   /** Primary (e.g. WooCommerce remote). */
   primary: SessionPersistenceProvider
@@ -22,6 +29,9 @@ export interface CompositePersistenceProviderOptions {
 /**
  * Routes persistence through a primary provider with local/offline fallback.
  * PersonalizationSessionManager never sees which concrete backend succeeded.
+ *
+ * Session writes: local fallback remains for recovery, but a remote failure
+ * is still thrown so commerce never treats LOCAL_ONLY as commercial success.
  */
 export class CompositePersistenceProvider implements SessionPersistenceProvider {
   readonly id = 'composite'
@@ -29,6 +39,7 @@ export class CompositePersistenceProvider implements SessionPersistenceProvider 
   private readonly fallback: SessionPersistenceProvider
   private readonly mirrorToFallback: boolean
   private lastBackend: PersistenceBackendKind
+  private lastSessionPersistOutcome: SessionPersistOutcome = 'FAILED'
 
   constructor(options: CompositePersistenceProviderOptions) {
     this.primary = options.primary
@@ -41,9 +52,14 @@ export class CompositePersistenceProvider implements SessionPersistenceProvider 
     return this.lastBackend
   }
 
-  /** Which leaf handled the last successful operation. */
+  /** Which leaf handled the last successful document/session read or remote write. */
   get activeBackend(): PersistenceBackendKind {
     return this.lastBackend
+  }
+
+  /** Last commerce session write classification (remote vs local-only vs failed). */
+  get sessionPersistOutcome(): SessionPersistOutcome {
+    return this.lastSessionPersistOutcome
   }
 
   async save(document: EkoDocument): Promise<EkoDocument> {
@@ -137,14 +153,21 @@ export class CompositePersistenceProvider implements SessionPersistenceProvider 
     try {
       const saved = await this.primary.saveSession(record, document)
       this.lastBackend = this.primary.backend ?? 'remote'
+      this.lastSessionPersistOutcome = 'PERSISTED_REMOTE'
       if (this.mirrorToFallback) {
         await this.fallback.saveSession(saved, document).catch(() => undefined)
       }
       return saved
-    } catch {
-      const saved = await this.fallback.saveSession(record, document)
-      this.lastBackend = this.fallback.backend ?? 'local'
-      return saved
+    } catch (err) {
+      // Keep a local copy for UX/offline recovery — but never treat this as commercial success.
+      try {
+        await this.fallback.saveSession(record, document)
+        this.lastBackend = this.fallback.backend ?? 'local'
+        this.lastSessionPersistOutcome = 'LOCAL_ONLY'
+      } catch {
+        this.lastSessionPersistOutcome = 'FAILED'
+      }
+      throw err
     }
   }
 
@@ -156,8 +179,9 @@ export class CompositePersistenceProvider implements SessionPersistenceProvider 
         return hit
       }
     } catch {
-      /* fall through */
+      /* fall through — unchanged */
     }
+
     const hit = await this.fallback.loadSession(sessionId)
     if (hit) this.lastBackend = this.fallback.backend ?? 'local'
     return hit

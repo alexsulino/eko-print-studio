@@ -33,7 +33,7 @@ describe('SessionPersistenceProvider architecture', () => {
     manager.destroy()
   })
 
-  it('Composite falls back to local when primary fails', async () => {
+  it('Composite keeps local fallback on remote failure but does not report commercial success', async () => {
     const primary = new InMemorySessionPersistenceProvider()
     const fallback = new InMemorySessionPersistenceProvider()
     vi.spyOn(primary, 'saveSession').mockRejectedValue(new Error('remote down'))
@@ -47,11 +47,28 @@ describe('SessionPersistenceProvider architecture', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    const saved = await composite.saveSession(record)
-    expect(saved.id).toBe('psess_test_1')
-    expect(composite.activeBackend).toBe('local')
+    await expect(composite.saveSession(record)).rejects.toThrow('remote down')
+    expect(composite.sessionPersistOutcome).toBe('LOCAL_ONLY')
     const hit = await fallback.loadSession('psess_test_1')
     expect(hit?.record.id).toBe('psess_test_1')
+  })
+
+  it('Composite marks PERSISTED_REMOTE when primary saveSession succeeds', async () => {
+    const primary = new InMemorySessionPersistenceProvider()
+    const fallback = new InMemorySessionPersistenceProvider()
+    const composite = new CompositePersistenceProvider({ primary, fallback })
+    const record: PersonalizationSessionRecord = {
+      id: 'psess_ok',
+      status: 'active',
+      product,
+      documentId: 'doc_ok',
+      masterId: SAMPLE_MASTER_ID,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    const saved = await composite.saveSession(record)
+    expect(saved.id).toBe('psess_ok')
+    expect(composite.sessionPersistOutcome).toBe('PERSISTED_REMOTE')
   })
 
   it('createCommercePersistence uses local without REST credentials', () => {
@@ -70,11 +87,14 @@ describe('SessionPersistenceProvider architecture', () => {
 
   it('WooCommercePersistenceProvider talks REST with token header', async () => {
     const fetchImpl: typeof fetch = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
-        return new Response(JSON.stringify({ record: { id: 'psess_remote', status: 'active' } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
+      async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        if (init?.method === 'PUT') {
+          return new Response(JSON.stringify({ record: { id: 'psess_remote', status: 'active' } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        return new Response('{}', { status: 404 })
       },
     )
     const remote = new WooCommercePersistenceProvider({
@@ -101,5 +121,30 @@ describe('SessionPersistenceProvider architecture', () => {
         }),
       }),
     )
+  })
+
+  it('WooCommercePersistenceProvider rejects invalid PUT body without matching record.id', async () => {
+    const fetchImpl: typeof fetch = vi.fn(
+      async (): Promise<Response> =>
+        new Response(JSON.stringify({ record: { id: 'psess_other', status: 'active' } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    )
+    const remote = new WooCommercePersistenceProvider({
+      restUrl: 'https://loja.example/wp-json/eko-print/v1',
+      token: 'secret',
+      fetchImpl,
+    })
+    const record: PersonalizationSessionRecord = {
+      id: 'psess_orphan',
+      status: 'active',
+      product,
+      documentId: 'doc_x',
+      masterId: SAMPLE_MASTER_ID,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    await expect(remote.saveSession(record)).rejects.toThrow('invalid PUT response')
   })
 })

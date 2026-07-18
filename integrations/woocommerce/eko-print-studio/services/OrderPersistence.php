@@ -41,7 +41,11 @@ final class OrderPersistence {
 		$session_id = (string) ($cart['sessionId'] ?? '');
 		$customization_id = (string) ($cart['customizationId'] ?? $session_id);
 
-		$item->add_meta_data(Settings::ORDER_META_KEY, wp_json_encode($order_payload), true);
+		$item->add_meta_data(
+			Settings::ORDER_META_KEY,
+			JsonMetaPersistence::encode_for_metadata($order_payload),
+			true
+		);
 		$item->add_meta_data(Settings::ORDER_SESSION_KEY, $session_id, true);
 		$item->add_meta_data(Settings::ORDER_CUSTOMIZATION_KEY, $customization_id, true);
 		$item->add_meta_data(Settings::ORDER_TEMPLATE_KEY, (string) ($cart['masterId'] ?? ''), true);
@@ -50,7 +54,11 @@ final class OrderPersistence {
 
 		if (!empty($cart['preview']) && is_array($cart['preview'])) {
 			// Persist full ExportProvider preview ref (preview.png data + optional domainData).
-			$item->add_meta_data(Settings::ORDER_PREVIEW_KEY, wp_json_encode($cart['preview']), true);
+			$item->add_meta_data(
+				Settings::ORDER_PREVIEW_KEY,
+				JsonMetaPersistence::encode_for_metadata($cart['preview']),
+				true
+			);
 		}
 
 		// Best-effort: mark customization as ordered in SessionRepository.
@@ -71,6 +79,24 @@ final class OrderPersistence {
 			'customizationId'  => $customization_id,
 			'hasRaster'        => PreviewPresenter::is_raster($cart['preview'] ?? null),
 		]);
+	}
+
+	/**
+	 * Decode `_eko_commerce_order` meta (string JSON or already-decoded array).
+	 * Does not change stored format — only reading resilience for admin reopen.
+	 *
+	 * @param mixed $raw
+	 * @return array<string,mixed>|null
+	 */
+	public static function decode_order_meta(mixed $raw): ?array {
+		if (is_array($raw)) {
+			return $raw;
+		}
+		if (!is_string($raw) || $raw === '') {
+			return null;
+		}
+		$decoded = json_decode($raw, true);
+		return is_array($decoded) ? $decoded : null;
 	}
 
 	public function order_created(int $order_id): void {

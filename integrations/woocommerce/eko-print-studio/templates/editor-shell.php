@@ -1,7 +1,7 @@
 <?php
 /**
  * Dedicated editor shell page — loads remote editor URL with commerce query params.
- * No editor logic; host/bridge only.
+ * Forwards customizationId (official) + sessionId (resume key). No editor logic.
  */
 declare(strict_types=1);
 
@@ -12,17 +12,31 @@ if (!defined('ABSPATH')) {
 $config = \EkoPrintStudio\Config\Settings::public_config();
 $editor = (string) ($config['editorUrl'] ?? '');
 $session = isset($_GET['sessionId']) ? sanitize_text_field(wp_unslash((string) $_GET['sessionId'])) : ''; // phpcs:ignore
+$customization = isset($_GET['customizationId']) ? sanitize_text_field(wp_unslash((string) $_GET['customizationId'])) : ''; // phpcs:ignore
 $template = isset($_GET['templateId']) ? sanitize_text_field(wp_unslash((string) $_GET['templateId'])) : ''; // phpcs:ignore
 $product = isset($_GET['productId']) ? sanitize_text_field(wp_unslash((string) $_GET['productId'])) : ''; // phpcs:ignore
+$rest_url = isset($_GET['restUrl']) ? esc_url_raw(wp_unslash((string) $_GET['restUrl'])) : ''; // phpcs:ignore
+$token = isset($_GET['persistenceToken']) ? sanitize_text_field(wp_unslash((string) $_GET['persistenceToken'])) : ''; // phpcs:ignore
+
+// Official reopen key first; sessionId falls back to customizationId (v1 equality).
+if ($customization === '' && $session !== '') {
+	$customization = $session;
+}
+if ($session === '' && $customization !== '') {
+	$session = $customization;
+}
 
 $query = http_build_query(array_filter([
-	'embed'      => 'page',
-	'sessionId'  => $session,
-	'templateId' => $template,
-	'productId'  => $product,
-	'theme'      => $config['theme'] ?? 'canva',
-	'lang'       => $config['language'] ?? 'pt-BR',
-	'hostOrigin' => home_url('/'),
+	'embed'             => 'page',
+	'customizationId'   => $customization,
+	'sessionId'         => $session,
+	'templateId'        => $template,
+	'productId'         => $product,
+	'theme'             => $config['theme'] ?? 'canva',
+	'lang'              => $config['language'] ?? 'pt-BR',
+	'hostOrigin'        => home_url('/'),
+	'restUrl'           => $rest_url,
+	'persistenceToken'  => $token,
 ]));
 
 $src = $editor !== '' ? (rtrim($editor, '/') . (str_contains($editor, '?') ? '&' : '?') . $query) : '';

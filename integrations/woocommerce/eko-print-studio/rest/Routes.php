@@ -6,6 +6,8 @@ namespace EkoPrintStudio\Rest;
 use EkoPrintStudio\Config\Settings;
 use EkoPrintStudio\Config\TemplateCatalog;
 use EkoPrintStudio\Services\AuditLog;
+use EkoPrintStudio\Services\CustomizationResolver;
+use EkoPrintStudio\Services\OrderPersistence;
 use EkoPrintStudio\Services\PayloadValidator;
 use EkoPrintStudio\Services\SessionRepository;
 use EkoPrintStudio\Services\SessionToken;
@@ -76,6 +78,19 @@ final class Routes {
 		register_rest_route(self::NS, '/add-to-cart', [
 			'methods'             => 'POST',
 			'callback'            => [$this, 'add_to_cart'],
+			'permission_callback' => [$this, 'can_shop'],
+		]);
+
+		// Official Customization resolution (source of truth for reopen — not sessionStorage).
+		register_rest_route(self::NS, '/customizations/(?P<id>[a-zA-Z0-9_-]+)', [
+			'methods'             => 'GET',
+			'callback'            => [$this, 'get_customization'],
+			'permission_callback' => [$this, 'can_shop'],
+		]);
+
+		register_rest_route(self::NS, '/products/(?P<id>\d+)/customization', [
+			'methods'             => 'GET',
+			'callback'            => [$this, 'get_product_customization'],
 			'permission_callback' => [$this, 'can_shop'],
 		]);
 
@@ -158,6 +173,7 @@ final class Routes {
 
 	public function get_session(WP_REST_Request $request): WP_REST_Response|WP_Error {
 		$session_id = sanitize_text_field((string) $request['id']);
+		// Same resolve path as CustomizationResolver / product-context (canonical id).
 		$hit = SessionRepository::get($session_id);
 		if (!$hit) {
 			return new WP_Error('eko_not_found', __('Session not found.', 'eko-print-studio'), ['status' => 404]);
@@ -174,11 +190,32 @@ final class Routes {
 		if (!is_array($record) || empty($record['id'])) {
 			return new WP_Error('eko_invalid', __('Missing session record.', 'eko-print-studio'), ['status' => 400]);
 		}
+		$path_id = sanitize_text_field((string) $request['id']);
+		$record_id = sanitize_text_field((string) $record['id']);
+		if ($path_id !== '' && $record_id !== '' && $path_id !== $record_id) {
+			return new WP_Error(
+				'eko_id_mismatch',
+				__('Session path id must match record.id.', 'eko-print-studio'),
+				['status' => 400]
+			);
+		}
 		$document_json = isset($body['documentJson']) ? (string) $body['documentJson'] : null;
 		if (is_string($document_json) && strlen($document_json) > 2000000) {
 			return new WP_Error('eko_too_large', __('Document too large.', 'eko-print-studio'), ['status' => 413]);
 		}
-		$saved = SessionRepository::upsert($record, $document_json);
+		try {
+			$saved = SessionRepository::upsert($record, $document_json);
+		} catch (\RuntimeException $e) {
+			AuditLog::record('session.persist_failed', [
+				'sessionId' => (string) ($record['id'] ?? ''),
+				'error'     => $e->getMessage(),
+			]);
+			return new WP_Error(
+				'eko_persist_failed',
+				__('Could not persist personalization session.', 'eko-print-studio'),
+				['status' => 500]
+			);
+		}
 		AuditLog::record('session.saved', ['sessionId' => $saved['id'] ?? '']);
 		return new WP_REST_Response(['record' => $saved], 200);
 	}
@@ -300,16 +337,67 @@ final class Routes {
 
 		$token = SessionToken::issue($product_id);
 
+		// Ensure cart session so CustomizationResolver can see cart lines (REST is not frontend).
+		self::ensure_wc_cart();
+
+		$hint = sanitize_text_field((string) (
+			$request->get_param('customization_id')
+				?: $request->get_param('session_id')
+				?: ''
+		));
+		$customization = null;
+		if ($hint !== '') {
+			// Explicit Edit/reopen: resolve ONLY that id — never substitute another product line.
+			$customization = CustomizationResolver::by_id($hint);
+		} else {
+			$customization = CustomizationResolver::for_product((string) $product_id);
+		}
+
+		// Never echo a cache/hint id as sessionId unless a Customization was resolved.
+		$resolved_customization_id = $customization
+			? (string) $customization['customizationId']
+			: '';
+		$resolved_session_id = $customization
+			? (string) $customization['sessionId']
+			: '';
+
 		return new WP_REST_Response([
-			'product'    => $context,
-			'sessionId'  => sanitize_text_field((string) ($request->get_param('session_id') ?: '')),
-			'config'     => Settings::public_config(),
-			'persistence' => [
+			'product'         => $context,
+			/** @deprecated Prefer customization.sessionId — empty when no official Customization */
+			'sessionId'       => $resolved_session_id,
+			'customizationId' => $resolved_customization_id,
+			'customization'   => $customization,
+			'config'          => Settings::public_config(),
+			'persistence'     => [
 				'restUrl' => esc_url_raw(rest_url(self::NS)),
 				'token'   => $token,
 				'backend' => 'woocommerce',
 			],
 		], 200);
+	}
+
+	public function get_customization(WP_REST_Request $request): WP_REST_Response|WP_Error {
+		self::ensure_wc_cart();
+		$id = sanitize_text_field((string) $request['id']);
+		$view = CustomizationResolver::by_id($id);
+		if (!$view) {
+			return new WP_Error(
+				'eko_customization_not_found',
+				__('Customization not found.', 'eko-print-studio'),
+				['status' => 404]
+			);
+		}
+		return new WP_REST_Response(['ok' => true, 'customization' => $view], 200);
+	}
+
+	public function get_product_customization(WP_REST_Request $request): WP_REST_Response|WP_Error {
+		self::ensure_wc_cart();
+		$product_id = (string) (int) $request['id'];
+		$view = CustomizationResolver::for_product($product_id);
+		if (!$view) {
+			return new WP_REST_Response(['ok' => true, 'customization' => null], 200);
+		}
+		return new WP_REST_Response(['ok' => true, 'customization' => $view], 200);
 	}
 
 	public function validate_cart(WP_REST_Request $request): WP_REST_Response|WP_Error {
@@ -335,6 +423,12 @@ final class Routes {
 
 		if ($product_id <= 0 || !wc_get_product($product_id)) {
 			return new WP_Error('eko_bad_product', __('Invalid product.', 'eko-print-studio'), ['status' => 400]);
+		}
+
+		// REST is not a "frontend" request — Woo skips cart bootstrap; load it explicitly.
+		$cart_ready = self::ensure_wc_cart();
+		if (is_wp_error($cart_ready)) {
+			return $cart_ready;
 		}
 
 		$session_id = (string) ($cart['sessionId'] ?? '');
@@ -410,6 +504,51 @@ final class Routes {
 	}
 
 	/**
+	 * Idempotent REST bootstrap for Woo session + cart (official WC APIs only).
+	 *
+	 * Frontend requests get this from Woo's own init; REST routes do not.
+	 *
+	 * @return true|\WP_Error
+	 */
+	private static function ensure_wc_cart() {
+		if (!function_exists('WC') || !WC()) {
+			return new WP_Error(
+				'eko_wc_missing',
+				__('WooCommerce is not available.', 'eko-print-studio'),
+				['status' => 500]
+			);
+		}
+
+		if (WC()->cart instanceof \WC_Cart) {
+			return true;
+		}
+
+		if (!function_exists('wc_load_cart')) {
+			return new WP_Error(
+				'eko_cart_unavailable',
+				__('WooCommerce cart API is unavailable.', 'eko-print-studio'),
+				['status' => 500]
+			);
+		}
+
+		// wc_load_cart() → WC()->initialize_session() + WC()->initialize_cart()
+		wc_load_cart();
+
+		if (!(WC()->cart instanceof \WC_Cart)) {
+			return new WP_Error(
+				'eko_cart_init_failed',
+				__('Could not initialize WooCommerce cart for this REST request.', 'eko-print-studio'),
+				['status' => 500]
+			);
+		}
+
+		// Hydrate contents from the customer session (same surface Store API uses after load).
+		WC()->cart->get_cart();
+
+		return true;
+	}
+
+	/**
 	 * @param array<string,mixed> $cart
 	 */
 	private static function mark_customization_cart_attached(string $session_id, array $cart): void {
@@ -440,11 +579,43 @@ final class Routes {
 				continue;
 			}
 			$raw = $item->get_meta(Settings::ORDER_META_KEY, true);
-			$decoded = is_string($raw) ? json_decode($raw, true) : null;
+			$decoded = OrderPersistence::decode_order_meta($raw);
 			if (!is_array($decoded)) {
-				return new WP_Error('eko_no_payload', __('No personalization on this item.', 'eko-print-studio'), ['status' => 404]);
+				// Scalar metas still allow official resume (same ids as cart edit).
+				$session_id = (string) $item->get_meta(Settings::ORDER_SESSION_KEY, true);
+				$customization_id = (string) $item->get_meta(Settings::ORDER_CUSTOMIZATION_KEY, true);
+				$id = $customization_id !== '' ? $customization_id : $session_id;
+				if ($id === '') {
+					return new WP_Error('eko_no_payload', __('No personalization on this item.', 'eko-print-studio'), ['status' => 404]);
+				}
+				$preview_raw = $item->get_meta(Settings::ORDER_PREVIEW_KEY, true);
+				$preview = OrderPersistence::decode_order_meta($preview_raw) ?? [];
+				$decoded = [
+					'schema'           => PayloadValidator::ORDER_SCHEMA,
+					'orderId'          => (string) $order_id,
+					'lineItemId'       => (string) $item_id,
+					'allowAdminReedit' => true,
+					'cart'             => [
+						'sessionId'       => $session_id !== '' ? $session_id : $id,
+						'customizationId' => $id,
+						'masterId'        => (string) $item->get_meta(Settings::ORDER_TEMPLATE_KEY, true),
+						'preview'         => is_array($preview) ? $preview : [],
+						'lifecycleStatus' => (string) ($item->get_meta(Settings::ORDER_LIFECYCLE_KEY, true) ?: 'ordered'),
+					],
+				];
 			}
 			$decoded['recoveredAt'] = gmdate('c');
+			// Official Customization resolution for admin reopen (Customization → sessionId).
+			$customization = CustomizationResolver::from_order_item($order_id, $item_id);
+			if ($customization) {
+				$decoded['customization'] = $customization;
+				$decoded['customizationId'] = $customization['customizationId'];
+				$decoded['sessionId'] = $customization['sessionId'];
+				if (isset($decoded['cart']) && is_array($decoded['cart'])) {
+					$decoded['cart']['customizationId'] = $customization['customizationId'];
+					$decoded['cart']['sessionId'] = $customization['sessionId'];
+				}
+			}
 			return new WP_REST_Response($decoded, 200);
 		}
 

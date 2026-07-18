@@ -2,6 +2,7 @@ import type { CommerceEmbedMode, CommerceProductContext } from '@/types/commerce
 import type { CommerceProvider } from '@/core/platform/providers'
 import type { EkoPrintStudio } from '@/sdk/EkoPrintStudio'
 import { createCommerceProvider } from './createCommerceProvider'
+import { withCommerceBootStage } from './commerceBootStage'
 
 export interface CommerceHostBootOptions {
   editor: EkoPrintStudio
@@ -33,7 +34,10 @@ export async function bootCommerceFromUrl(
   )
   const templateId = params.get('templateId') || ''
   const productId = params.get('productId') || ''
-  const sessionId = params.get('sessionId') || params.get('customizationId') || undefined
+  // Official reopen key is customizationId; sessionId is the persistence resume key (v1: equal).
+  const customizationId =
+    params.get('customizationId') || params.get('sessionId') || undefined
+  const sessionId = params.get('sessionId') || customizationId || undefined
   const embed = (params.get('embed') as CommerceEmbedMode | null) || 'modal'
   const autosaveMs = Number(params.get('autosaveMs') ?? 15000)
   const variationId = params.get('variationId') || undefined
@@ -50,25 +54,31 @@ export async function bootCommerceFromUrl(
     return null
   }
 
-  const provider = createCommerceProvider({
-    platform,
-    editor: options.editor,
-    defaultEmbedMode: embed,
-    targetOrigin: options.targetOrigin ?? hostOrigin ?? '*',
-  })
+  const provider = await withCommerceBootStage('createCommerceProvider', () =>
+    createCommerceProvider({
+      platform,
+      editor: options.editor,
+      defaultEmbedMode: embed,
+      targetOrigin: options.targetOrigin ?? hostOrigin ?? '*',
+    }),
+  )
 
-  await provider.prepare?.({
-    sessionId,
-    customizationId: params.get('customizationId') || sessionId,
-    embedMode: embed,
-    autosaveMs: Number.isFinite(autosaveMs) ? autosaveMs : 15000,
-    restUrl: restUrl || undefined,
-    persistenceToken: persistenceToken || undefined,
-    hostOrigin: hostOrigin || undefined,
-    hostMeta: { restUrl },
-  })
+  await withCommerceBootStage('prepare', () =>
+    provider.prepare?.({
+      sessionId,
+      customizationId,
+      embedMode: embed,
+      autosaveMs: Number.isFinite(autosaveMs) ? autosaveMs : 15000,
+      restUrl: restUrl || undefined,
+      persistenceToken: persistenceToken || undefined,
+      hostOrigin: hostOrigin || undefined,
+      hostMeta: { restUrl },
+    }),
+  )
 
-  options.editor.configureCommerce(provider)
+  await withCommerceBootStage('configureCommerce', () => {
+    options.editor.configureCommerce(provider)
+  })
 
   const product: CommerceProductContext = {
     productId: productId || 'unknown',
@@ -78,15 +88,17 @@ export async function bootCommerceFromUrl(
     hostMeta: { hostOrigin, restUrl, platform },
   }
 
-  const record = await provider.start({
-    product,
-    sessionId,
-    customizationId: params.get('customizationId') || sessionId,
-    embedMode: embed,
-    autosaveMs: Number.isFinite(autosaveMs) ? autosaveMs : 15000,
-    hostWindow: typeof window !== 'undefined' ? window.parent : undefined,
-    targetOrigin: options.targetOrigin ?? hostOrigin ?? '*',
-  })
+  const record = await withCommerceBootStage('start', () =>
+    provider.start({
+      product,
+      sessionId,
+      customizationId,
+      embedMode: embed,
+      autosaveMs: Number.isFinite(autosaveMs) ? autosaveMs : 15000,
+      hostWindow: typeof window !== 'undefined' ? window.parent : undefined,
+      targetOrigin: options.targetOrigin ?? hostOrigin ?? '*',
+    }),
+  )
 
   return { provider, record }
 }

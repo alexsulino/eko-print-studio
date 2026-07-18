@@ -50,6 +50,10 @@ Se você nunca viu o projeto, comece por [01 — Introdução](./01-introduction
 - [Arquitetura técnica (legado)](./architecture.md)
 - [Roadmap](./roadmap.md)
 - [ADR Foundation](./adr/0001-foundation.md)
+- [Architectural Invariants (constituição)](./architecture/invariants.md)
+- [System Guarantees](./architecture/SYSTEM_GUARANTEES.md)
+- [ADR-0002 WordPress JSON meta persistence](./architecture/ADR-0002-wordpress-json-persistence.md)
+- [CONTRIBUTING](../CONTRIBUTING.md)
 
 ---
 

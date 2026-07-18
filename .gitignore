@@ -31,3 +31,4 @@ lerna-debug.log*
 # Test / cache
 coverage/
 *.tsbuildinfo
+tests/architecture/.fitness-report.json

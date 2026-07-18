@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace EkoPrintStudio\Admin;
 
 use EkoPrintStudio\Config\Settings;
+use EkoPrintStudio\Services\OrderPersistence;
 
 /**
  * Order admin panel — reopen personalization via SDK host (no PHP editing).
@@ -45,28 +46,54 @@ final class OrderPanel {
 	 * @param \WC_Product|bool $product
 	 */
 	public function render_item_panel(int $item_id, $item, $product): void {
-		unset($product);
 		if (!is_object($item) || !method_exists($item, 'get_meta')) {
 			return;
 		}
 
 		$raw = $item->get_meta(Settings::ORDER_META_KEY, true);
-		if (!$raw) {
-			return;
-		}
+		$payload = OrderPersistence::decode_order_meta($raw);
 
-		$payload = is_string($raw) ? json_decode($raw, true) : null;
-		if (!is_array($payload)) {
+		// Fallback: scalar metas alone (same ids the cart edit button uses).
+		if ($payload === null) {
+			$payload = $this->payload_from_scalar_metas($item);
+		}
+		if ($payload === null) {
 			return;
 		}
 
 		$cart = is_array($payload['cart'] ?? null) ? $payload['cart'] : [];
-		$session_id = (string) ($cart['sessionId'] ?? $item->get_meta(Settings::ORDER_SESSION_KEY, true));
-		$template_id = (string) ($cart['masterId'] ?? $item->get_meta(Settings::ORDER_TEMPLATE_KEY, true));
+		$customization_id = (string) (
+			$cart['customizationId']
+				?? $item->get_meta(Settings::ORDER_CUSTOMIZATION_KEY, true)
+				?? ''
+		);
+		$session_id = (string) ($cart['sessionId'] ?? $item->get_meta(Settings::ORDER_SESSION_KEY, true) ?? '');
+		if ($customization_id === '' && $session_id !== '') {
+			$customization_id = $session_id;
+		}
+		if ($session_id === '' && $customization_id !== '') {
+			$session_id = $customization_id;
+		}
+		if ($customization_id === '' && $session_id === '') {
+			return;
+		}
+
+		$template_id = (string) ($cart['masterId'] ?? $item->get_meta(Settings::ORDER_TEMPLATE_KEY, true) ?? '');
+		// Same product id source chain as cart edit button.
+		$product_id = '';
+		if (is_object($product) && method_exists($product, 'get_id')) {
+			$product_id = (string) $product->get_id();
+		}
+		if ($product_id === '' && !empty($cart['product']['productId'])) {
+			$product_id = (string) $cart['product']['productId'];
+		}
+		if ($product_id === '' && method_exists($item, 'get_product_id')) {
+			$product_id = (string) $item->get_product_id();
+		}
 		$preview = is_array($cart['preview'] ?? null) ? $cart['preview'] : [];
 		if ($preview === []) {
 			$raw_preview = $item->get_meta(Settings::ORDER_PREVIEW_KEY, true);
-			$decoded_preview = is_string($raw_preview) ? json_decode($raw_preview, true) : null;
+			$decoded_preview = OrderPersistence::decode_order_meta($raw_preview);
 			if (is_array($decoded_preview)) {
 				$preview = $decoded_preview;
 			}
@@ -79,7 +106,54 @@ final class OrderPanel {
 		if (method_exists($item, 'get_order_id')) {
 			$order_id = (int) $item->get_order_id();
 		}
+		if ($order_id <= 0 && method_exists($item, 'get_order')) {
+			$order = $item->get_order();
+			if (is_object($order) && method_exists($order, 'get_id')) {
+				$order_id = (int) $order->get_id();
+			}
+		}
 
 		include EKO_PS_PATH . 'views/admin-order-item.php';
+	}
+
+	/**
+	 * Rebuild a minimal order payload view from scalar order-item metas.
+	 * Same identity fields used by cart "Editar Personalização".
+	 *
+	 * @param object $item
+	 * @return array<string,mixed>|null
+	 */
+	private function payload_from_scalar_metas(object $item): ?array {
+		if (!method_exists($item, 'get_meta')) {
+			return null;
+		}
+		$session_id = (string) $item->get_meta(Settings::ORDER_SESSION_KEY, true);
+		$customization_id = (string) $item->get_meta(Settings::ORDER_CUSTOMIZATION_KEY, true);
+		if ($customization_id === '' && $session_id === '') {
+			return null;
+		}
+		if ($customization_id === '') {
+			$customization_id = $session_id;
+		}
+		if ($session_id === '') {
+			$session_id = $customization_id;
+		}
+		$preview = [];
+		$raw_preview = $item->get_meta(Settings::ORDER_PREVIEW_KEY, true);
+		$decoded_preview = OrderPersistence::decode_order_meta($raw_preview);
+		if (is_array($decoded_preview)) {
+			$preview = $decoded_preview;
+		}
+		return [
+			'schema'           => 'eko.commerce.order/1',
+			'allowAdminReedit' => true,
+			'cart'             => [
+				'sessionId'       => $session_id,
+				'customizationId' => $customization_id,
+				'masterId'        => (string) $item->get_meta(Settings::ORDER_TEMPLATE_KEY, true),
+				'preview'         => $preview,
+				'lifecycleStatus' => (string) ($item->get_meta(Settings::ORDER_LIFECYCLE_KEY, true) ?: 'ordered'),
+			],
+		];
 	}
 }

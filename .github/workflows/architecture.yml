@@ -1,0 +1,28 @@
+name: Architecture
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  architecture-verify:
+    name: Architecture Fitness Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Architecture verify
+        run: npm run architecture:verify
+      - name: Upload fitness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-fitness-report
+          path: tests/architecture/.fitness-report.json
+          if-no-files-found: ignore

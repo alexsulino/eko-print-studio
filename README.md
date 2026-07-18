@@ -8,6 +8,20 @@ Engine profissional para personalização gráfica e Web-to-Print.
 
 O **EkoDocument JSON** é a fonte de verdade. Konva é apenas a tecnologia interna de renderização e manipulação no canvas.
 
+## Princípios Fundamentais
+
+A constituição do projeto — **prioridade máxima na arquitetura**:
+
+→ **[`docs/architecture/ARCHITECTURE_STATUS.md`](docs/architecture/ARCHITECTURE_STATUS.md)** · **[`docs/architecture/invariants.md`](docs/architecture/invariants.md)** · **[`docs/architecture/STABILITY.md`](docs/architecture/STABILITY.md)** (**Nível 4**)
+
+Invariantes e garantias definem o que **nunca** pode ser quebrado. Fitness Functions + `npm run architecture:verify` detectam regressões estruturais na CI.
+
+Fluxo oficial imutável (ADR-0004): `Editor → Save → Woo Persistence → CPT → Cart → Resume → Re-edit → Order`.
+
+Governança: [`RELEASE_POLICY`](docs/architecture/RELEASE_POLICY.md) · [`QUALITY_PIPELINE`](docs/architecture/QUALITY_PIPELINE.md) · [`LESSONS_LEARNED`](docs/architecture/LESSONS_LEARNED.md).
+
+Contribuição e checklist de PR: [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
+
 ## Architectural Principles
 
 1. EkoDocument é a única fonte de verdade.
@@ -20,6 +34,10 @@ O **EkoDocument JSON** é a fonte de verdade. Konva é apenas a tecnologia inter
 8. Integrações externas utilizam Providers.
 9. O núcleo permanece independente de qualquer plataforma.
 10. Produção gráfica será responsabilidade do Print Pipeline.
+11. JSON em post/order meta no WordPress **só** via `JsonMetaPersistence` (INV-1 / ADR-0002).
+12. Intent commerce nunca cai em standalone silencioso (INV-9).
+13. Fluxo oficial commerce é imutável sem ADR (INV-12).
+14. Sem instrumentação TEMP em paths críticos (INV-11).
 
 ## Objetivos
 

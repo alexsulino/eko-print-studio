@@ -28,6 +28,7 @@ import {
   touchCurrentRevision,
 } from '@/sdk/commerce/CustomizationLifecycle'
 import { ensureCustomizationFields } from '@/types/customization'
+import { withCommerceBootStage } from '@/providers/commerce/commerceBootStage'
 
 /**
  * @deprecated Prefer SessionPersistenceProvider.saveSession / loadSession.
@@ -90,7 +91,9 @@ export class PersonalizationSessionManager {
   ): Promise<PersonalizationSessionRecord> {
     this.clearAutosave()
     const now = new Date().toISOString()
-    const document = await this.documentProvider.createSession(product.templateId)
+    const document = await withCommerceBootStage('createSession', () =>
+      this.documentProvider.createSession(product.templateId),
+    )
     this.hydrateEditor(document)
 
     const id = createId('psess')

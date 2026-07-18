@@ -122,6 +122,13 @@
   font-size: 0.9em;
 }
 
+.eko-ps-edit-customization {
+  display: inline-block;
+  margin: 0.35rem 0 0 0.5rem;
+  vertical-align: middle;
+  font-size: 0.85rem;
+}
+
 .eko-ps-cart-thumb,
 .eko-ps-preview-thumb {
   display: block;

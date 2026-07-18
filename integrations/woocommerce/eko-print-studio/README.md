@@ -41,6 +41,12 @@ Flush permalinks once after activation (Settings → Permalinks → Save) so `/e
 |-------|-----|----------|
 | Cart item | `eko_personalization` | `eko.commerce.cart/1` |
 | Order item | `_eko_commerce_order` | `eko.commerce.order/1` |
+| Session CPT | `_eko_session_record` / `_eko_session_document` | JSON via `JsonMetaPersistence` only (ADR-0002) |
+
+## JSON meta (ADR-0002)
+
+Never call `update_post_meta(..., $json)` or `add_meta_data(..., wp_json_encode(...))` for JSON.
+Use `JsonMetaPersistence` — WordPress `wp_unslash` otherwise corrupts escapes. See repo root `CONTRIBUTING.md`.
 
 ## Security
 

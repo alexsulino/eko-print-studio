@@ -19,6 +19,7 @@ import {
 } from '@/sdk/EkoPrintStudio'
 import { bindPostMessageTransport } from '@/sdk/host/PostMessageBridge'
 import { commerceMessages } from './commerceMessages'
+import { withCommerceBootStage } from './commerceBootStage'
 
 export interface HostCommerceProviderOptions {
   editor?: EkoPrintStudio
@@ -71,13 +72,16 @@ export abstract class HostCommerceProvider implements CommerceProvider {
       this.bindHost(options.hostWindow, this.targetOrigin)
     }
 
-    const sessionId = options.sessionId ?? options.customizationId
-    return this.editor.openPersonalization({
-      product: options.product,
-      embedMode,
-      sessionId,
-      autosaveMs: options.autosaveMs,
-    })
+    // Resolve Customization identity first; sessionId is the persistence resume key (v1: equal).
+    const resumeId = options.customizationId ?? options.sessionId
+    return withCommerceBootStage('openPersonalization', () =>
+      this.editor.openPersonalization({
+        product: options.product,
+        embedMode,
+        sessionId: resumeId,
+        autosaveMs: options.autosaveMs,
+      }),
+    )
   }
 
   async reopen(sessionId: string, product?: CommerceProductContext): Promise<PersonalizationSessionRecord> {

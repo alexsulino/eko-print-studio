@@ -181,7 +181,7 @@ POST /wp-json/eko-print/v1/add-to-cart
 - PDP com miniatura = `preview.data` (raster oficial — sem regenerar)
 - Item no carrinho com thumb PNG + badge **Personalizado** + nome da arte
 - Meta interna `eko_personalization` (contrato `eko.commerce.cart/1` + `customizationId` / `lifecycleStatus`)
-- Reabrir o editor reutiliza o mesmo Customization (`customizationId` ≡ `sessionId` em v1)
+- Reabrir o editor resolve a entidade **Customization** (REST / `CustomizationResolver`) e só então chama `resume(sessionId)` — `sessionStorage` no host-bridge é cache UX opcional (`customizationId` ≡ `sessionId` em v1)
 
 > ![Screenshot 04 — Carrinho](./assets/screenshots/04-cart.png)
 

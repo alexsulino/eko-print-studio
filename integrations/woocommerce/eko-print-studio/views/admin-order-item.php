@@ -8,13 +8,22 @@ if (!defined('ABSPATH')) {
 use EkoPrintStudio\Services\PreviewPresenter;
 
 /** @var string $session_id */
+/** @var string $customization_id */
 /** @var string $template_id */
+/** @var string $product_id */
 /** @var string $version */
 /** @var string $saved_at */
 /** @var string $status */
 /** @var array<string,mixed> $preview */
 /** @var int $order_id */
 /** @var int $item_id */
+
+if (!isset($customization_id) || $customization_id === '') {
+	$customization_id = $session_id;
+}
+if (!isset($product_id)) {
+	$product_id = '';
+}
 
 $is_raster = PreviewPresenter::is_raster($preview);
 $document_name = '';
@@ -28,6 +37,7 @@ if (!empty($preview['domainData']) && is_string($preview['domainData'])) {
 <div class="eko-ps-order-panel">
 	<strong><?php esc_html_e('Eko Print Studio', 'eko-print-studio'); ?></strong>
 	<ul>
+		<li><?php esc_html_e('Customization:', 'eko-print-studio'); ?> <code><?php echo esc_html($customization_id); ?></code></li>
 		<li><?php esc_html_e('Sessão:', 'eko-print-studio'); ?> <code><?php echo esc_html($session_id); ?></code></li>
 		<li><?php esc_html_e('Template:', 'eko-print-studio'); ?> <code><?php echo esc_html($template_id); ?></code></li>
 		<li><?php esc_html_e('Versão:', 'eko-print-studio'); ?> <code><?php echo esc_html($version); ?></code></li>
@@ -46,22 +56,20 @@ if (!empty($preview['domainData']) && is_string($preview['domainData'])) {
 		<p class="description"><?php esc_html_e('Preview legado (domínio). Pedidos novos incluem preview.png raster.', 'eko-print-studio'); ?></p>
 	<?php endif; ?>
 	<p>
+		<?php if ($customization_id !== '' && $product_id !== '') : ?>
 		<button
 			type="button"
-			class="button button-primary eko-ps-reopen"
+			class="button button-primary eko-ps-edit-customization"
+			data-eko-edit-customization
+			data-customization-id="<?php echo esc_attr($customization_id); ?>"
+			data-session-id="<?php echo esc_attr($session_id); ?>"
+			data-product-id="<?php echo esc_attr($product_id); ?>"
+			data-template-id="<?php echo esc_attr($template_id); ?>"
 			data-order-id="<?php echo esc_attr((string) $order_id); ?>"
 			data-item-id="<?php echo esc_attr((string) $item_id); ?>"
-			data-session-id="<?php echo esc_attr($session_id); ?>"
 		>
-			<?php esc_html_e('Reabrir Personalização', 'eko-print-studio'); ?>
+			<?php esc_html_e('Editar Personalização', 'eko-print-studio'); ?>
 		</button>
-		<button
-			type="button"
-			class="button eko-ps-open-editor"
-			data-session-id="<?php echo esc_attr($session_id); ?>"
-			data-template-id="<?php echo esc_attr($template_id); ?>"
-		>
-			<?php esc_html_e('Abrir Editor', 'eko-print-studio'); ?>
-		</button>
+		<?php endif; ?>
 	</p>
 </div>

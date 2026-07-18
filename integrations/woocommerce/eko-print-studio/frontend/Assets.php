@@ -14,8 +14,9 @@ final class Assets {
 	}
 
 	public function maybe_enqueue(): void {
-		$needs_bridge = is_product() || $this->is_editor_page();
-		$needs_preview_css = $needs_bridge || is_cart() || is_checkout();
+		// Bridge opens editor from PDP, cart, checkout, and dedicated editor shell.
+		$needs_bridge = is_product() || is_cart() || is_checkout() || $this->is_editor_page();
+		$needs_preview_css = $needs_bridge;
 
 		if (!$needs_preview_css) {
 			return;

@@ -71,9 +71,17 @@ export class WooCommercePersistenceProvider implements SessionPersistenceProvide
       record,
       documentJson: document ? JSON.stringify(document) : undefined,
     }
+    // Consistency is enforced server-side (SessionRepository::upsert verifies CPT).
+    // A 200 from put_session means remote persist succeeded — no fragile immediate GET.
     const res = await this.request('PUT', `/sessions/${encodeURIComponent(record.id)}`, payload)
     const body = (await res.json()) as { record?: PersonalizationSessionRecord }
-    return body.record ?? record
+    const saved = body.record
+    if (!saved || saved.id !== record.id) {
+      throw new Error(
+        `WooCommercePersistenceProvider: invalid PUT response for session ${record.id}`,
+      )
+    }
+    return saved
   }
 
   async loadSession(sessionId: string): Promise<PersistedPersonalizationSession | null> {

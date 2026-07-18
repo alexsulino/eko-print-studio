@@ -39,14 +39,38 @@ final class PreviewPresenter {
 		if (!self::is_raster($preview)) {
 			return '';
 		}
+		$src = self::safe_img_src((string) $preview['data']);
+		if ($src === '') {
+			return '';
+		}
 		$alt = (string) ($preview['filename'] ?? 'preview.png');
 		return sprintf(
 			'<img class="%1$s" src="%2$s" alt="%3$s" loading="lazy" style="max-width:%4$dpx;height:auto;border-radius:6px;" />',
 			esc_attr($class),
-			esc_url((string) $preview['data']),
+			$src,
 			esc_attr($alt !== '' ? $alt : 'preview.png'),
 			max(32, $max_width)
 		);
+	}
+
+	/**
+	 * Escape an image src for HTML.
+	 * - Official ExportProvider rasters use data:image/*;base64,... (esc_url strips data:)
+	 * - Remote thumbs keep esc_url (http/https only via WP defaults)
+	 */
+	private static function safe_img_src(string $data): string {
+		$data = trim($data);
+		if ($data === '') {
+			return '';
+		}
+
+		// Allow only image data-URLs with base64 payload — no javascript:/vbscript: etc.
+		if (preg_match('#^data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$#i', $data)) {
+			return esc_attr($data);
+		}
+
+		$escaped = esc_url($data);
+		return is_string($escaped) ? $escaped : '';
 	}
 
 	/**

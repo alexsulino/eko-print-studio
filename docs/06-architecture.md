@@ -37,7 +37,7 @@ flowchart TB
 | **Core** | Documento, comandos, histórico, interação, render pipeline, registry, eventos de plataforma | Não conhece React, Konva, Woo, WP, HTTP |
 | **SDK** | Fachada pública (`EkoPrintStudio`), sessão Creator, commerce sessions, postMessage helpers | Não implementa checkout Woo |
 | **Adapters** | Traduzem SDK ↔ host (ex.: meta `eko_personalization`) | Não reimplementam o editor |
-| **Plugin Woo** | Settings, botão, REST, carrinho, pedido, admin reopen | Não embute Core/React |
+| **Plugin Woo** | Settings, botão, REST, carrinho, pedido, admin reopen; JSON meta via `JsonMetaPersistence` (ADR-0002) | Não embute Core/React |
 
 ### Por que o Core nunca conhece WordPress?
 

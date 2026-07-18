@@ -223,20 +223,22 @@ Console: `DocumentProvider required for personalization sessions` ou falha ao `o
 ### Possíveis causas
 
 - SDK criado sem `documentProvider`
-- `sessionId` inválido ao reabrir
+- `customizationId` / `sessionId` inválido ao reabrir (Customization ausente no CPT/carrinho)
+- Host ainda esperava `sessionStorage` como fonte (cache vazio ≠ personalização inexistente)
 - Template/master inexistente
 
 ### Diagnosticar
 
-1. Confirme boot do app commerce (`bootWooCommerceFromUrl`)
-2. Verifique `sessionId` no reopen admin
-3. Template Master selecionado bate com um id publicado no Template Registry / DocumentProvider
+1. Confirme boot do app commerce (`bootCommerceFromUrl`)
+2. Verifique `GET /eko-print/v1/customizations/{id}` ou `product-context` (deve retornar `customization`)
+3. No reopen admin, payload deve trazer `customizationId` (+ `sessionId`)
+4. Template Master selecionado bate com um id publicado no Template Registry / DocumentProvider
 
 ### Resolver
 
 1. Use o editor oficial do repositório (já configura providers no App)
 2. Não instancie `EkoPrintStudio` “nu” para commerce sem `documentProvider`
-3. Para reopen, use payload de pedido com `sessionId` válido
+3. Para reopen, resolva **Customization** primeiro; só então passe `sessionId` para `resume()` — não dependa de `sessionStorage`
 
 ---
 
@@ -335,8 +337,30 @@ Pedido criado sem meta `_eko_commerce_order`.
 ### Resolver
 
 1. Garanta que o item **já** tinha meta no carrinho
-2. Evite plugins que “recriam” line items sem `cart_item_data`
-3. Reabra o pedido: se meta sumiu, personalização precisa ser refeita
+2. Confirme hooks padrão do checkout
+3. Evite plugins que “recriam” line items sem `cart_item_data`
+4. Order item JSON deve passar por `JsonMetaPersistence` (ADR-0002) — nunca `wp_json_encode` cru em `add_meta_data`
+5. Reabra o pedido: se meta sumiu, personalização precisa ser refeita
+
+---
+
+## 12b. PUT /sessions 500 · resume / reedição falha · `json_decode` Syntax error
+
+### Sintoma
+
+- Save/finalize → HTTP 500 `eko_persist_failed`
+- CPT existe (`find_post_id` OK) mas `GET /sessions/{id}` / `resume()` falha
+- Meta `_eko_session_record` presente (~dezenas de KB) mas `json_decode` → Syntax error
+
+### Causa
+
+`update_post_meta` → `wp_unslash` remove escapes do JSON. **Corrigido** em v0.8.11 via `JsonMetaPersistence` (ADR-0002).
+
+### Resolver
+
+1. Deploy do plugin com `services/JsonMetaPersistence.php`
+2. **Save novamente** para reescrever metas antigas corrompidas
+3. Não gravar JSON com `update_post_meta($json)` direto — ver [CONTRIBUTING](../CONTRIBUTING.md)
 
 ---
 
